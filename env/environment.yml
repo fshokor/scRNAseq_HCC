@@ -1,92 +1,353 @@
 name: hcc_drug_discovery
-
-# =============================================================================
-# Channel priority (top = highest priority)
-# conda-forge is used for most packages — it has more up-to-date builds
-# than defaults and better cross-platform compatibility.
-# pytorch channel is required for the official PyTorch CPU/GPU builds.
-# =============================================================================
 channels:
-  - pytorch
-  - nvidia
   - conda-forge
   - defaults
-
+  - pytorch
 dependencies:
-
-  # ── Python ─────────────────────────────────────────────────────────────────
-  - python=3.12
-
-  # ── PyTorch ────────────────────────────────────────────────────────────────
-  # CPU-only build — works on any machine, sufficient for this project.
-  # For GPU support see env/environment_gpu.yml
-  - pytorch::pytorch>=2.2,<2.6
-  - pytorch::cpuonly
-
-  # ── Core scientific stack ───────────────────────────────────────────────────
-  # numpy <2.0 required by scanpy 1.10
-  - conda-forge::numpy>=1.26,<2.0
-  - conda-forge::pandas>=2.1
-  - conda-forge::scipy>=1.11
-  - conda-forge::matplotlib>=3.8
-  - conda-forge::seaborn>=0.13
-
-  # ── Single-cell RNA-seq ─────────────────────────────────────────────────────
-  # scanpy pulls anndata automatically; leidenalg + python-igraph
-  # are required for the Leiden clustering algorithm used in notebook 02.
-  - conda-forge::scanpy>=1.10
-  - conda-forge::anndata>=0.10
-  - conda-forge::leidenalg>=0.10
-  - conda-forge::python-igraph>=0.11
-
-  # ── R interface (for annotation notebooks 03) ───────────────────────────────
-  # rpy2 bridges Python and R. R itself must be installed separately:
-  #   macOS/Linux: conda install -c conda-forge r-base=4.4
-  #   Windows:     download from https://cran.r-project.org/
-  # R packages (Seurat, SingleR, celldex, ScType) are installed via:
-  #   Rscript env/r_packages.R
-  - conda-forge::rpy2>=3.5
-
-  # ── Network & graph ─────────────────────────────────────────────────────────
-  - conda-forge::networkx>=3.2
-
-  # ── HTTP / API clients ──────────────────────────────────────────────────────
-  - conda-forge::requests>=2.31
-
-  # ── Machine learning ────────────────────────────────────────────────────────
-  - conda-forge::scikit-learn>=1.4
-
-  # ── Survival analysis ───────────────────────────────────────────────────────
-  - conda-forge::lifelines>=0.28
-
-  # ── Jupyter environment ─────────────────────────────────────────────────────
-  - conda-forge::jupyterlab>=4.0
-  - conda-forge::notebook>=7.0
-  - conda-forge::ipykernel>=6.29
-  - conda-forge::ipywidgets>=8.1
-  - conda-forge::nbformat>=5.9
-  - conda-forge::nbconvert>=7.0
-
-  # ── pip-only packages ───────────────────────────────────────────────────────
-  # These are not available on conda-forge or require pip for correct
-  # version resolution alongside the conda-installed packages above.
-  - pip
+  - _libavif_api=1.4.1
+  - _python_abi3_support=1.0
+  - _r-mutex=1.0.1
+  - anndata=0.12.10
+  - anyio=4.13.0
+  - aom=3.9.1
+  - argon2-cffi=25.1.0
+  - argon2-cffi-bindings=25.1.0
+  - array-api-compat=1.14.0
+  - arrow=1.4.0
+  - asttokens=3.0.1
+  - async-lru=2.3.0
+  - attrs=26.1.0
+  - autograd=1.8.0
+  - autograd-gamma=0.5.0
+  - aws-c-auth=0.10.1
+  - aws-c-cal=0.9.13
+  - aws-c-common=0.12.6
+  - aws-c-compression=0.3.2
+  - aws-c-http=0.10.12
+  - aws-c-io=0.26.3
+  - aws-c-s3=0.11.5
+  - aws-c-sdkutils=0.2.4
+  - aws-checksums=0.2.10
+  - babel=2.18.0
+  - backports.zstd=1.3.0
+  - beautifulsoup4=4.14.3
+  - blas=1.0
+  - bleach=6.3.0
+  - bleach-with-css=6.3.0
+  - brotli=1.2.0
+  - brotli-bin=1.2.0
+  - brotli-python=1.2.0
+  - bzip2=1.0.8
+  - ca-certificates=2026.2.25
+  - cached-property=1.5.2
+  - cached_property=1.5.2
+  - cairo=1.18.4
+  - certifi=2026.2.25
+  - cffi=2.0.0
+  - charset-normalizer=3.4.7
+  - colorama=0.4.6
+  - comm=0.2.3
+  - contourpy=1.3.3
+  - cpuonly=2.0
+  - cpython=3.12.13
+  - cycler=0.12.1
+  - dav1d=1.2.1
+  - debugpy=1.8.20
+  - decorator=5.2.1
+  - defusedxml=0.7.1
+  - deprecated=1.3.1
+  - donfig=0.8.1.post1
+  - exceptiongroup=1.3.1
+  - executing=2.2.1
+  - filelock=3.28.0
+  - fontconfig=2.17.1
+  - fonttools=4.62.0
+  - formulaic=1.2.1
+  - fqdn=1.5.1
+  - freeglut=3.8.0
+  - freetype=2.14.3
+  - fribidi=1.0.16
+  - glpk=4.65
+  - google-crc32c=1.8.0
+  - graphite2=1.3.14
+  - h11=0.16.0
+  - h2=4.3.0
+  - h5py=3.16.0
+  - harfbuzz=12.3.0
+  - hdf5=2.1.0
+  - hpack=4.1.0
+  - httpcore=1.0.9
+  - httpx=0.28.1
+  - hyperframe=6.1.0
+  - icu=73.2
+  - idna=3.11
+  - igraph=1.0.0
+  - importlib-metadata=8.8.0
+  - importlib_resources=7.1.0
+  - intel-openmp=2025.3.2
+  - interface_meta=1.3.0
+  - ipykernel=7.2.0
+  - ipython=9.12.0
+  - ipython_pygments_lexers=1.1.1
+  - ipywidgets=8.1.8
+  - isoduration=20.11.0
+  - jedi=0.19.2
+  - jinja2=3.1.6
+  - joblib=1.5.3
+  - jpeg=9e
+  - json5=0.14.0
+  - jsonpointer=3.1.1
+  - jsonschema=4.26.0
+  - jsonschema-specifications=2025.9.1
+  - jsonschema-with-format-nongpl=4.26.0
+  - jupyter-lsp=2.3.1
+  - jupyter_client=8.8.0
+  - jupyter_core=5.9.1
+  - jupyter_events=0.12.0
+  - jupyter_server=2.17.0
+  - jupyter_server_terminals=0.5.4
+  - jupyterlab=4.5.6
+  - jupyterlab_pygments=0.3.0
+  - jupyterlab_server=2.28.0
+  - jupyterlab_widgets=3.0.16
+  - kiwisolver=1.5.0
+  - krb5=1.22.2
+  - lark=1.3.1
+  - lcms2=2.17
+  - legacy-api-wrap=1.5
+  - leidenalg=0.11.0
+  - lerc=4.1.0
+  - libabseil=20260107.1
+  - libaec=1.1.5
+  - libavif=1.4.1
+  - libavif16=1.4.1
+  - libblas=3.9.0
+  - libbrotlicommon=1.2.0
+  - libbrotlidec=1.2.0
+  - libbrotlienc=1.2.0
+  - libcblas=3.9.0
+  - libclang13=22.1.3
+  - libcrc32c=1.1.2
+  - libcurl=8.19.0
+  - libdeflate=1.22
+  - libevent=2.1.12
+  - libexpat=2.7.5
+  - libffi=3.5.2
+  - libfreetype=2.14.3
+  - libfreetype6=2.14.3
+  - libglib=2.86.3
+  - libhwloc=2.12.1
+  - libiconv=1.18
+  - libkrb5=1.22.1
+  - liblapack=3.9.0
+  - libleidenalg=0.12.0
+  - liblzma=5.8.3
+  - liblzma-devel=5.8.3
+  - libopenblas=0.3.32
+  - libopenjpeg=2.5.4
+  - libpng=1.6.58
+  - libpq=17.6
+  - libre2-11=2025.11.05
+  - libsodium=1.0.21
+  - libsqlite=3.53.0
+  - libssh2=1.11.1
+  - libtiff=4.7.1
+  - libuv=1.51.0
+  - libwebp-base=1.6.0
+  - libxml2=2.13.9
+  - libxslt=1.1.43
+  - libzlib=1.3.2
+  - lifelines=0.30.1
+  - llvmlite=0.47.0
+  - m2w64-bwidget=1.9.10
+  - m2w64-bzip2=1.0.6
+  - m2w64-expat=2.1.1
+  - m2w64-fftw=3.3.4
+  - m2w64-flac=1.3.1
+  - m2w64-gcc-libgfortran=5.3.0
+  - m2w64-gcc-libs=5.3.0
+  - m2w64-gcc-libs-core=5.3.0
+  - m2w64-gettext=0.19.7
+  - m2w64-gmp=6.1.0
+  - m2w64-gsl=2.1
+  - m2w64-libiconv=1.14
+  - m2w64-libjpeg-turbo=1.4.2
+  - m2w64-libogg=1.3.2
+  - m2w64-libpng=1.6.21
+  - m2w64-libsndfile=1.0.26
+  - m2w64-libtiff=4.0.6
+  - m2w64-libvorbis=1.3.5
+  - m2w64-libwinpthread-git=5.0.0.4634.697f757
+  - m2w64-libxml2=2.9.3
+  - m2w64-mpfr=3.1.4
+  - m2w64-pcre2=10.34
+  - m2w64-speex=1.2rc2
+  - m2w64-speexdsp=1.2rc3
+  - m2w64-tcl=8.6.5
+  - m2w64-tk=8.6.5
+  - m2w64-tktable=2.10
+  - m2w64-wineditline=2.101
+  - m2w64-xz=5.2.2
+  - m2w64-zlib=1.2.8
+  - markupsafe=3.0.3
+  - matplotlib=3.10.8
+  - matplotlib-base=3.10.8
+  - matplotlib-inline=0.2.1
+  - mistune=3.2.0
+  - mkl=2023.1.0
+  - mpmath=1.4.1
+  - msgpack-python=1.1.2
+  - msys2-conda-epoch=20160418
+  - munkres=1.1.4
+  - mysql-common=9.3.0
+  - mysql-libs=9.3.0
+  - narwhals=2.19.0
+  - natsort=8.4.0
+  - nbclient=0.10.4
+  - nbconvert=7.17.1
+  - nbconvert-core=7.17.1
+  - nbconvert-pandoc=7.17.1
+  - nbformat=5.10.4
+  - nest-asyncio=1.6.0
+  - networkx=3.6.1
+  - notebook=7.5.5
+  - notebook-shim=0.2.4
+  - numba=0.65.0
+  - numcodecs=0.16.5
+  - numpy=1.26.4
+  - openssl=3.6.2
+  - overrides=7.7.0
+  - packaging=26.1
+  - pandas=2.3.3
+  - pandoc=3.9.0.2
+  - pandocfilters=1.5.0
+  - parso=0.8.6
+  - patsy=1.0.2
+  - pcre2=10.46
+  - pillow=12.1.1
+  - pip=26.0.1
+  - pixman=0.46.4
+  - platformdirs=4.9.6
+  - prometheus_client=0.25.0
+  - prompt-toolkit=3.0.52
+  - psutil=7.2.2
+  - pure_eval=0.2.3
+  - pycparser=2.22
+  - pygments=2.20.0
+  - pynndescent=0.5.13
+  - pyparsing=3.3.2
+  - pyside6=6.11.0
+  - pysocks=1.7.1
+  - python=3.12.13
+  - python-dateutil=2.9.0.post0
+  - python-fastjsonschema=2.21.2
+  - python-gil=3.12.13
+  - python-igraph=1.0.0
+  - python-json-logger=2.0.7
+  - python-tzdata=2026.1
+  - python_abi=3.12
+  - pytorch=2.5.1
+  - pytorch-mutex=1.0
+  - pytz=2026.1.post1
+  - pywin32=311
+  - pywinpty=2.0.15
+  - pyyaml=6.0.3
+  - pyzmq=27.1.0
+  - qhull=2020.2
+  - qtbase=6.11.0
+  - qtdeclarative=6.11.0
+  - qtshadertools=6.11.0
+  - qtsvg=6.11.0
+  - qttools=6.11.0
+  - qtwebchannel=6.11.0
+  - qtwebengine=6.11.0
+  - qtwebsockets=6.11.0
+  - r-base=4.1.3
+  - rav1e=0.8.1
+  - re2=2025.11.05
+  - referencing=0.37.0
+  - requests=2.33.1
+  - rfc3339-validator=0.1.4
+  - rfc3986-validator=0.1.1
+  - rfc3987-syntax=1.1.0
+  - rpds-py=0.30.0
+  - scanpy=1.11.5
+  - scikit-learn=1.8.0
+  - seaborn=0.13.2
+  - seaborn-base=0.13.2
+  - send2trash=2.1.0
+  - session-info2=0.4.1
+  - setuptools=82.0.1
+  - simplegeneric=0.8.1
+  - six=1.17.0
+  - snappy=1.2.2
+  - sniffio=1.3.1
+  - soupsieve=2.8.3
+  - spirv-tools=2026.1
+  - sqlite=3.53.0
+  - stack_data=0.6.3
+  - statsmodels=0.14.6
+  - svt-av1=4.0.1
+  - sympy=1.14.0
+  - tbb=2021.13.0
+  - terminado=0.18.1
+  - texttable=1.7.0
+  - threadpoolctl=3.6.0
+  - tinycss2=1.4.0
+  - tk=8.6.13
+  - tomli=2.4.1
+  - tornado=6.5.5
+  - tqdm=4.67.3
+  - traitlets=5.14.3
+  - typing-extensions=4.15.0
+  - typing_extensions=4.15.0
+  - typing_utils=0.1.0
+  - tzdata=2025c
+  - tzlocal=5.3.1
+  - ucrt=10.0.26100.0
+  - umap-learn=0.5.12
+  - unicodedata2=17.0.1
+  - uri-template=1.3.0
+  - urllib3=2.6.3
+  - vc=14.3
+  - vc14_runtime=14.44.35208
+  - vcomp14=14.44.35208
+  - vs2015_runtime=14.44.35208
+  - wcwidth=0.6.0
+  - webcolors=25.10.0
+  - webencodings=0.5.1
+  - websocket-client=1.9.0
+  - wheel=0.46.3
+  - widgetsnbextension=4.0.15
+  - win_inet_pton=1.1.0
+  - winpty=0.4.3
+  - wrapt=2.1.2
+  - xz=5.8.3
+  - xz-tools=5.8.3
+  - yaml=0.2.5
+  - zarr=3.1.5
+  - zeromq=4.3.5
+  - zipp=3.23.1
+  - zlib=1.3.2
+  - zstd=1.5.7
   - pip:
-      # Cell-type annotation
-      - celltypist>=1.6          # automated cell-type annotation
-
-      # R <-> Python bridge (anndata2ri is pip-only)
-      - anndata2ri>=1.3          # converts AnnData to SingleCellExperiment (R)
-
-      # PyTorch Geometric and required sparse/scatter extensions.
-      # These wheels are compiled against a specific torch version.
-      # setup_env.sh installs them with the correct --find-links URL automatically.
-      # If installing manually:
-      #   TORCH=$(python -c "import torch; print(torch.__version__.split('+')[0])")
-      #   pip install torch-geometric torch-scatter torch-sparse torch-cluster \
-      #       --find-links https://data.pyg.org/whl/torch-${TORCH}+cpu.html
-      - torch-geometric>=2.5
-      - torch-scatter
-      - torch-sparse
-      - torch-cluster
-      - torch-spline-conv
+      - aiohappyeyeballs==2.6.1
+      - aiohttp==3.13.5
+      - aiosignal==1.4.0
+      - anndata2ri==2.0
+      - celltypist==1.7.1
+      - click==8.3.2
+      - et-xmlfile==2.0.0
+      - frozenlist==1.8.0
+      - fsspec==2026.3.0
+      - multidict==6.7.1
+      - openpyxl==3.1.5
+      - propcache==0.4.1
+      - rpy2==3.6.7
+      - rpy2-rinterface==3.6.6
+      - rpy2-robjects==3.6.5
+      - scipy==1.17.1
+      - torch-geometric==2.7.0
+      - xxhash==3.6.0
+      - yarl==1.23.0
+prefix: C:\Users\shoko\anaconda3\envs\hcc_drug_discovery
