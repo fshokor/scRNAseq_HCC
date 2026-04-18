@@ -47,9 +47,8 @@ from .scrna_functions import (
     majority_vote,
 )
 from .ppi_analysis import (
-    _find_repo_root,
-    norm_width,
-    norm_alpha,
+    norm_width, 
+    norm_alpha
 )
 from .gsea_functions import (
     prepare_ranked_list,
@@ -66,6 +65,42 @@ from .dea_functions import (
     run_wilcoxon,
     plot_volcano,
     export_dea,
+)
+from .dgi_functions import (
+    load_dgi_inputs,
+    collect_interactions,
+    build_dgi_dataframe,
+    build_gnn_edge_list,
+    plot_dgi_dashboard,
+)
+from .gnn_functions import (
+    build_graph,
+    make_edge_tensors,
+    GCNModel,
+    GATModel,
+    SAGEModel,
+    train_model,
+    evaluate_model,
+    rank_drugs,
+    export_results,
+    plot_training,
+    plot_comparison,
+    plot_scatter,
+    plot_ranking,
+)
+from .ppi_functions import (
+    load_dea,
+    query_string,
+    build_and_score,
+    export_ppi,
+)
+from .survival_functions import (
+    load_gene_list,
+    fetch_tcga_lihc,
+    simulate_tcga,
+    run_survival,
+    filter_survivors,
+    export_survival,
 )
 
 __all__ = [
@@ -85,5 +120,5 @@ __all__ = [
     "build_ppi_graph", "compute_hub_scores", "build_gnn_graph", "edge_tensors",
     "run_wilcoxon", "plot_volcano", "export_dea",
     "safe_request", "query_dgidb", "query_chembl", "query_opentargets",
-    "get_curated_fallback",
+    "get_curated_fallback", "norm_width", "norm_alpha"
 ]
