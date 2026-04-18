@@ -202,40 +202,43 @@ def run_survival(gene_list, merged):
     print(f"Testing {len(avail)} genes...")
 
     for i, gene in enumerate(avail):
-        gd = merged[["OS_time", "OS_event", gene]].dropna().copy()
-        gd.columns = ["T", "E", "expr"]
-        if len(gd) < 20:
-            continue
-        gd["group"] = np.where(gd.expr >= gd.expr.median(), "High", "Low")
-        hi, lo = gd[gd.group == "High"], gd[gd.group == "Low"]
-        if len(hi) < 5 or len(lo) < 5:
+        gene_data = merged[["OS_time","OS_event",gene]].dropna().copy()
+        gene_data.columns = ["T","E","expr"]
+        if len(gene_data) < 20: continue
+        # ── Dichotomise at median ─────────────────────────────────────────────────
+        median_expr = gene_data["expr"].median()
+        gene_data["group"] = np.where(gene_data["expr"] >= median_expr,
+                                    "High", "Low")
+        high = gene_data[gene_data["group"] == "High"]
+        low  = gene_data[gene_data["group"] == "Low"]
+    
+        if len(high) < 5 or len(low) < 5:
             continue
 
-        lr = logrank_test(hi.T, lo.T,
-                          event_observed_A=hi.E, event_observed_B=lo.E)
+        gene_data["group"] = np.where(gene_data.expr >= gene_data.expr.median(), "High", "Low")
+        hi, lo = gene_data[gene_data.group=="High"], gene_data[gene_data.group=="Low"]
+        if len(hi) < 5 or len(lo) < 5: continue
+        # ── Log-rank test ─────────────────────────────────────────────────────────
+        lr = logrank_test(
+            high["T"], low["T"],
+            event_observed_A=high["E"],
+            event_observed_B=low["E"],
+        )
+        # ── Cox proportional hazards ──────────────────────────────────────────────
         try:
-            cd = gd[["T", "E", "expr"]].copy()
+            cd = gene_data[["T","E","expr"]].copy()
             cd["expr"] = (cd.expr - cd.expr.mean()) / (cd.expr.std() + 1e-9)
             cph = CoxPHFitter(penalizer=0.1)
             cph.fit(cd, duration_col="T", event_col="E", show_progress=False)
             hr   = float(np.exp(cph.params_["expr"]))
-            ci_l = float(np.exp(
-                cph.confidence_intervals_.loc["expr", "95% lower-bound"]))
-            ci_h = float(np.exp(
-                cph.confidence_intervals_.loc["expr", "95% upper-bound"]))
-            cox_p = float(cph.summary.loc["expr", "p"])
-        except Exception:
+            ci_l = float(np.exp(cph.confidence_intervals_.loc["expr","95% lower-bound"]))
+            ci_h = float(np.exp(cph.confidence_intervals_.loc["expr","95% upper-bound"]))
+            cox_p = float(cph.summary.loc["expr","p"])
+        except:
             hr = ci_l = ci_h = cox_p = np.nan
-
-        results.append({
-            "gene"      : gene,
-            "logrank_p" : lr.p_value,
-            "cox_p"     : cox_p,
-            "HR"        : hr,
-            "HR_CI_low" : ci_l,
-            "HR_CI_high": ci_h,
-        })
-        if (i + 1) % 50 == 0:
+        results.append({"gene":gene,"logrank_p":lr.p_value,"cox_p":cox_p,
+                        "HR":hr,"HR_CI_low":ci_l,"HR_CI_high":ci_h})
+        if (i+1) % 50 == 0:
             print(f"  [{i+1}/{len(avail)}]")
 
     return pd.DataFrame(results)

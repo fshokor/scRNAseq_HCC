@@ -53,7 +53,7 @@ def run_wilcoxon(adata, groupby="sample", group="tumor (HCC2)",
         (de_results["pvals_adj"] < padj_thresh) &
         (de_results["logfoldchanges"].abs() > log2fc_thresh)
     ].copy()
-    sig.columns = ["gene", "log2FC", "pvalue", "adj_pvalue"]
+    sig.columns = ["gene","scores", "log2FC", "pvalue", "adj_pvalue"]
     sig["regulation"] = (sig["log2FC"] > 0).map({True: "up", False: "down"})
 
     print(f"Total DEGs    : {len(sig)}")
