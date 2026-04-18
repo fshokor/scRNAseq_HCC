@@ -285,25 +285,6 @@ file paths for the Colab session filesystem — no manual setup required.
 
 ---
 
-## Citation
-
-If you use this code, please cite the original paper:
-
-```bibtex
-@article{wang2025hcc,
-  title   = {Integrating single-cell RNA sequencing and artificial intelligence
-             for multitargeted drug design for combating resistance in liver cancer},
-  author  = {Wang, Houhong and Yang, Youyuan and Zhang, Junfeng and others},
-  journal = {npj Precision Oncology},
-  volume  = {9},
-  pages   = {309},
-  year    = {2025},
-  doi     = {10.1038/s41698-025-00952-3}
-}
-```
-
----
-
 ## Licence
 
 MIT — see [LICENSE](LICENSE) for details.
