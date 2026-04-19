@@ -70,10 +70,6 @@ _CSS = """
   img    { max-width: 100%; border-radius: 8px; margin: .5rem 0; }
   .fig-missing { color: #aaa; font-style: italic; padding: .5rem 0; }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-  .summary { background: #eef2ff; border-left: 4px solid #4361ee; border-radius: 8px;
-             padding: 1rem 1.25rem; margin-bottom: 1.5rem; font-size: .95rem;
-             line-height: 1.6; color: #1a1a2e; }
-  .summary strong { color: #3a0ca3; }
   @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
 </style>
 """
@@ -139,7 +135,6 @@ def generate_scrna_report(
     adata,              # final annotated AnnData (post-QC, post-filter)
     sig,                # DEA significant genes DataFrame
     vote_df,            # cluster → cell type vote table
-    score_df,           # marker score DataFrame
     ranked,             # GSEA ranked gene list (Series)
     # FIX [1]: raw counts must be passed explicitly (before any filtering)
     n_raw_hcc1: int,    # cell count in HCC1 BEFORE quality filtering
@@ -173,7 +168,6 @@ def generate_scrna_report(
     n_qc_hcc2    = int(sample_counts.get("HCC2", sample_counts.get("tumor (HCC2)",  0)))
     n_total_raw  = n_raw_hcc1 + n_raw_hcc2
     n_total_qc   = adata.n_obs
-    n_genes_raw  = adata.n_vars   # genes after HVG step; raw gene # stored in uns if available
     n_clusters   = adata.obs[leiden_col].nunique()
     n_hvg        = (int(adata.var["highly_variable"].sum())
                     if "highly_variable" in adata.var.columns else n_top_genes)
@@ -237,18 +231,28 @@ def generate_scrna_report(
     plt.close(fig_ct)
  
     # ── Top DEG table ─────────────────────────────────────────────────────────
-    top_up   = (sig[sig.regulation == "up"]
-                .nlargest(10, "log2FC")[["gene","log2FC","adj_pvalue"]])
-    top_down = (sig[sig.regulation == "down"]
-                .nsmallest(10, "log2FC")[["gene","log2FC","adj_pvalue"]])
- 
+    # Accept either scanpy-native column names or renamed versions
+    _fc_col = "log2FC"     if "log2FC"     in sig.columns else "logfoldchanges"
+    _pv_col = "adj_pvalue" if "adj_pvalue" in sig.columns else "pvals_adj"
+    _gn_col = "gene"       if "gene"       in sig.columns else sig.columns[0]
+
+    if "regulation" in sig.columns:
+        top_up   = (sig[sig["regulation"] == "up"]
+                    .nlargest(10, _fc_col)[[_gn_col, _fc_col, _pv_col]])
+        top_down = (sig[sig["regulation"] == "down"]
+                    .nsmallest(10, _fc_col)[[_gn_col, _fc_col, _pv_col]])
+    else:
+        top_up   = sig.nlargest(10, _fc_col)[[_gn_col, _fc_col, _pv_col]]
+        top_down = sig.nsmallest(10, _fc_col)[[_gn_col, _fc_col, _pv_col]]
+
     def _deg_table(df):
+        gn, fc, pv = df.columns[0], df.columns[1], df.columns[2]
         rows = ""
         for _, r in df.iterrows():
-            rows += (f"<tr><td><b>{r.gene}</b></td>"
-                     f"<td>{r.log2FC:+.3f}</td>"
-                     f"<td>{r.adj_pvalue:.2e}</td></tr>")
-        return (f"<table><tr><th>Gene</th><th>log2FC</th>"
+            rows += (f"<tr><td><b>{r[gn]}</b></td>"
+                     f"<td>{r[fc]:+.3f}</td>"
+                     f"<td>{r[pv]:.2e}</td></tr>")
+        return (f"<table><tr><th>Gene</th><th>log&#8322;FC</th>"
                 f"<th>adj p-value</th></tr>{rows}</table>")
     # ── GSEA table ────────────────────────────────────────────────────────────
     gsea_rows = ""
@@ -287,20 +291,9 @@ def generate_scrna_report(
   <b>Notebook:</b> 01_scrna_analysis.ipynb
 </div>
 
-<!-- ── SUMMARY ──────────────────────────────────────────────────────── -->
-<div class="summary">
-  <strong>What this report covers:</strong> Single-cell RNA sequencing analysis of
-  hepatocellular carcinoma (HCC) using dataset GSE166635, which contains cells from
-  tumour-adjacent normal tissue (HCC1) and tumour tissue (HCC2). The pipeline covers
-  quality control, dimensionality reduction, unsupervised clustering, multi-source
-  cell-type annotation, differential expression analysis (DEA), and gene set
-  enrichment analysis (GSEA) — building a high-resolution map of the HCC tumour
-  microenvironment and identifying candidate biomarkers and transcriptional drivers
-  of disease progression.
-</div>
-
 <!-- ══════════════════════════════════════════════════════════════════════
      SECTION 1 · DATASET
+     FIX [1]: show RAW counts here, post-QC counts moved to Section 2
      ══════════════════════════════════════════════════════════════════════ -->
 <div class="section">
 <h2>1 · Dataset</h2>
@@ -317,7 +310,8 @@ def generate_scrna_report(
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════
-     SECTION 2 · PREPROCESSING & QC
+     SECTION 2 · PREPROCESSING
+     FIX [2]: table is 2-column only (Filter | Value); "Rationale" removed
      ══════════════════════════════════════════════════════════════════════ -->
 <div class="section">
 <h2>2 · Preprocessing &amp; Quality Control</h2>
@@ -329,9 +323,6 @@ def generate_scrna_report(
     {_param_row("Maximum genes per cell",   str(max_genes))}
     {_param_row("Max mitochondrial %",      f"{max_mt_pct} %")}
   </table>
-
-  <h3>QC metrics per sample</h3>
-  {_img_tag(figs["qc_violin"], "Violin plots — genes detected, total RNA counts, and % mitochondrial reads per sample before filtering")}
 
   <h3>Cells retained after QC</h3>
   <div class="grid">
@@ -353,6 +344,7 @@ def generate_scrna_report(
 
 <!-- ══════════════════════════════════════════════════════════════════════
      SECTION 3 · CLUSTERING
+     FIX [3]: correct figure key (umap_leiden)
      ══════════════════════════════════════════════════════════════════════ -->
 <div class="section">
 <h2>3 · Dimensionality Reduction &amp; Clustering</h2>
@@ -366,22 +358,28 @@ def generate_scrna_report(
     {_param_row("Clusters identified",       str(n_clusters))}
   </table>
   <br>
-  {_img_tag(figs["umap_leiden"], "UMAP coloured by Leiden cluster (left) and by sample origin — HCC1 normal-adjacent vs. HCC2 tumour (right)")}
+  {_img_tag(figs["umap_leiden"], "UMAP coloured by Leiden cluster")}
 </div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════
      SECTION 4 · CELL-TYPE ANNOTATION
+     FIX [4]: added QC violin + annotated UMAP + sample UMAP
      ══════════════════════════════════════════════════════════════════════ -->
 <div class="section">
 <h2>4 · Cell-type Annotation</h2>
 <div class="box">
-  <p>Four evidence sources combined by <b>majority vote</b> per cluster:
-  CellTypist, ScType (liver-specific, double-weighted for parenchymal types),
-  SingleR (HPCA reference), and a curated marker-score method.</p>
+  <p>Four evidence sources combined by <b>majority vote</b> per cluster.
+  ScType (liver-specific marker sets) receives double weight for parenchymal types.</p>
+
+  <h3>QC metrics per sample</h3>
+  {_img_tag(figs["qc_violin"], "Violin plot — genes detected, total counts, and % mitochondrial reads")}
 
   <h3>UMAP — annotated cell types</h3>
   {_img_tag(figs["umap_annot"], "UMAP coloured by majority-vote cell-type annotation")}
+
+  <h3>UMAP — sample origin (tumour vs. normal)</h3>
+  {_img_tag(figs["umap_sample"], "UMAP coloured by sample: HCC1 (normal-adjacent) vs. HCC2 (tumour)")}
 
   <h3>Cluster annotation summary</h3>
   {annot_table}
@@ -432,7 +430,10 @@ def generate_scrna_report(
 <div class="box">
   {gsea_table}
   <br>
-  {_img_tag(figs["gsea_bp"], "Top enriched GO Biological Process pathways")}
+  <div class="two-col">
+    {_img_tag(figs["gsea_bp"],   "Top enriched GO Biological Process pathways")}
+    {_img_tag(figs["gsea_kegg"], "Top enriched KEGG pathways")}
+  </div>
 </div>
 </div>
 
@@ -470,10 +471,10 @@ def generate_scrna_report(
 def generate_target_report(
     sig, gene_list, G, hub_df, edges_df,
     string_score, log2fc_thresh, padj_thresh,
-    surv_df, surv_filtered, is_sim,
+    surv_filtered, is_sim,
     km_p_thresh, cox_p_thresh, hr_min, hr_max,
     dgi_df, apis_ok,
-    use_dgidb, use_chembl, use_opentargets, use_curated, W,
+    use_dgidb, use_chembl, use_opentargets, use_curated,
     figures_dir, tables_dir, reports_dir,
 ):
     figures_dir = Path(figures_dir)
@@ -494,20 +495,6 @@ def generate_target_report(
     surv_note = ("⚠ Simulated survival data used (TCGA-LIHC unavailable)"
                  if is_sim else "✓ TCGA-LIHC survival data")
 
-    # P3 table: drop internal one-hot / GNN feature columns — show only meaningful ones
-    _dgi_display_cols = [c for c in
-        ["gene", "drug", "source", "interaction_type", "directionality",
-         "approved", "clinical_phase", "n_publications", "composite_score"]
-        if c in dgi_df.columns]
-    dgi_display = dgi_df[_dgi_display_cols].head(20)
-
-    # Survival table: drop redundant columns
-    _surv_display_cols = [c for c in
-        ["gene", "HR", "HR_CI_low", "HR_CI_high", "logrank_p", "cox_p",
-         "log2FC", "regulation", "prognosis"]
-        if c in surv_filtered.columns]
-    surv_display = surv_filtered[_surv_display_cols].head(20)
-
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8">
@@ -519,16 +506,6 @@ def generate_target_report(
 <div class="meta"><b>Dataset:</b> GEO GSE166635 / TCGA-LIHC &nbsp;|&nbsp;
 <b>Generated:</b> {_now()} &nbsp;|&nbsp; <b>Notebook:</b> 02_target_prioritisation.ipynb</div>
 
-<div class="summary">
-  <strong>What this report covers:</strong> A three-stage target prioritisation pipeline
-  applied to the differentially expressed genes identified in notebook 01. Stage P1 builds
-  a protein–protein interaction (PPI) network using STRING and ranks hub genes by network
-  centrality. Stage P2 filters those hub genes by survival association using TCGA-LIHC
-  Kaplan–Meier and Cox proportional-hazards analyses. Stage P3 queries drug databases
-  (DGIdb, ChEMBL, OpenTargets) to identify approved or clinical-stage compounds that
-  interact with the prioritised genes — generating a ranked list of repurposing candidates.
-</div>
-
 <div class="section">
 <h2>P1 · Protein-Protein Interaction Network</h2>
 <div class="box">
@@ -537,11 +514,11 @@ def generate_target_report(
   {_param_row("log₂FC threshold", str(log2fc_thresh))}
   {_param_row("adj p threshold", str(padj_thresh))}
   {_param_row("DEGs queried", str(len(gene_list)))}
-  {_param_row("Top hub genes shown", str(min(n_hub, 20)))}
+  {_param_row("Hub genes identified", str(n_hub))}
   </table><br>
-  {_img_tag(figs["ppi"], "PPI network — top hub genes highlighted by degree and hub score")}
+  {_img_tag(figs["ppi"], "PPI network — top hub genes highlighted")}
   <h3>Top 20 hub genes</h3>
-  {hub_df[["gene","degree","hub_score","regulation"]].head(20).to_html(index=False, border=0, classes="")}
+  {_table(hub_df[["gene","degree","hub_score","regulation"]].head(20))}
 </div></div>
 
 <div class="section">
@@ -555,10 +532,10 @@ def generate_target_report(
   {_param_row("Genes passing survival filter", str(n_surv))}
   </table><br>
   <div class="two-col">
-    {_img_tag(figs["km"],  "Kaplan-Meier survival curves for top candidates")}
+    {_img_tag(figs["km"],  "Kaplan-Meier curves for top candidates")}
     {_img_tag(figs["cox"], "Cox proportional-hazards forest plot")}
   </div>
-  {surv_display.to_html(index=False, border=0, classes="", float_format=lambda x: f"{x:.4f}")}
+  {_table(surv_filtered.head(20))}
 </div></div>
 
 <div class="section">
@@ -570,10 +547,9 @@ def generate_target_report(
   <tr><td>OpenTargets</td><td>{"✓" if use_opentargets else "✗"}</td></tr>
   <tr><td>Curated (manual)</td><td>{"✓" if use_curated else "✗"}</td></tr>
   </table>
-  <p><b>{n_dgi:,}</b> drug-gene interactions found across {len(apis_ok)} active source(s).
-  Table below shows the top 20 by composite score.</p>
-  {_img_tag(figs["dgi_bar"], "Drug-gene interaction counts per hub gene")}
-  {dgi_display.to_html(index=False, border=0, classes="", float_format=lambda x: f"{x:.4f}")}
+  <p><b>{n_dgi}</b> drug-gene interactions found across {len(apis_ok)} active source(s).</p>
+  {_img_tag(figs["dgi_bar"], "Drug-gene interaction summary dashboard")}
+  {_table(dgi_df.head(30))}
 </div></div>
 
 </body></html>"""
