@@ -21,7 +21,7 @@ Raw count matrices (MTX format) are downloaded automatically by
 
 ---
 
-## scRNA Analysis (01_scrna_analysis)
+## scRNA Analysis (`01_scrna_analysis.ipynb`)
 
 ### 01 · Preprocessing
 
