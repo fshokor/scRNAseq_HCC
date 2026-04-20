@@ -16,7 +16,7 @@ HTML report alongside its analytical outputs:
 | Notebook | What it does |
 |----------|-------------|
 | **01 · scRNA-seq Analysis** | QC, normalisation, UMAP clustering, 4-way cell-type annotation, DEA, GSEA |
-| **02 · Target Prioritisation** | PPI hub gene network (STRING), survival filter (TCGA-LIHC), drug–gene interactions (DGIdb, ChEMBL, OpenTargets) |
+| **02 · Target Prioritisation** | PPI hub gene network (STRING), drug–gene interactions (DGIdb, ChEMBL, OpenTargets) |
 | **03 · GNN Drug Ranking** | Trains GCN / GAT / GraphSAGE on the interaction graph, re-scores all drug–gene pairs, produces a ranked repurposing list |
 
 ---
@@ -106,7 +106,7 @@ jupyter lab
 | Notebook | Input | Key outputs | Logic script |
 |----------|-------|-------------|-------------|
 | `01_scrna_analysis.ipynb` | `data/raw/HCC1,HCC2/` | `adata_annotated.h5ad` · `dea_results.csv` · `gsea_*.csv` · figures · HTML report | `scrna_functions.py` · `dea_functions.py` · `gsea_functions.py` |
-| `02_target_prioritisation.ipynb` | `dea_results.csv` | `hub_genes.csv` · `survival_filtered_genes.csv` · `dgi_edges_gnn.csv` · `dgi_summary_dashboard.png` · HTML report | `ppi_functions.py` · `survival_functions.py` · `dgi_functions.py` |
+| `02_target_prioritisation.ipynb` | `dea_results.csv` | `hub_genes.csv`  · `dgi_edges_gnn.csv` · `dgi_summary_dashboard.png` · HTML report | `ppi_functions.py` · `dgi_functions.py` |
 | `03_gnn_drug_ranking.ipynb` | `dgi_edges_gnn.csv` | `gnn_drug_ranking.csv` · `gcn_best.pt` · `drug_gene_network.png` · HTML report | `gnn_functions.py` |
 
 Each notebook contains only configuration and single-line function calls.
