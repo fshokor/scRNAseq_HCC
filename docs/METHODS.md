@@ -1,10 +1,6 @@
 # Methods
 
 Detailed computational methods for the HCC drug discovery pipeline.
-Corresponds to Wang et al. (2025) *npj Precision Oncology* 9:309
-([doi:10.1038/s41698-025-00952-3](https://doi.org/10.1038/s41698-025-00952-3))
-and the extensions described in this repository.
-
 ---
 
 ## Dataset
@@ -16,15 +12,17 @@ Chromium platform:
 
 | Sample | Condition | Cells (raw) |
 |--------|-----------|-------------|
-| HCC1 | Tumor-adjacent normal tissue | ~12,500 |
-| HCC2 | Tumor tissue | ~12,700 |
+| HCC1 | Tumor-adjacent normal tissue | 16,077 |
+| HCC2 | Tumor tissue | 9,112 |
 
 Raw count matrices (MTX format) are downloaded automatically by
 `scripts/data_download.py` from the NCBI GEO FTP server.
 
 ---
 
-## 01 · Preprocessing (`01_preprocessing.ipynb`, `scripts/scrna_functions.py`)
+## scRNA Analysis (01_scrna_analysis)
+
+### 01 · Preprocessing
 
 Raw count matrices were loaded with Scanpy (v≥1.10) using `sc.read_10x_mtx`.
 The two samples were merged with `concatenate`, preserving sample identity in
@@ -54,7 +52,7 @@ suppressing noise from lowly expressed genes.
 
 ---
 
-## 02 · Clustering (`02_clustering.ipynb`, `scripts/scrna_functions.py`)
+### 02 · Clustering 
 
 **Dimensionality reduction** applied PCA to the HVG-subset expression matrix.
 The top 10 principal components were retained based on the elbow of the
@@ -71,31 +69,31 @@ interpretability and alignment with known liver cell-type proportions.
 
 ---
 
-## 03 · Cell-type annotation (`03_annotation.ipynb`, `scripts/scrna_functions.py`)
+### 03 · Cell-type annotation 
 
 Three automated annotation methods were applied independently and then reconciled:
 
-### CellTypist
+#### CellTypist
 `Immune_All_High.pkl` (coarse) and `Immune_All_Low.pkl` (fine) models with
 majority voting at the Leiden cluster level. Input: normalised log-counts.
 
-### ScType
+#### ScType
 Liver-specific marker database (`ScTypeDB_full.xlsx`) sourced from the
 [ScType GitHub repository](https://github.com/IanevskiAleksandr/sc-type).
 Run via rpy2 in R. The `sctype_score_` function was applied to log-normalised
 expression; the highest-scoring cell type per Leiden cluster was recorded.
 
-### SingleR
+#### SingleR
 Human Primary Cell Atlas (HPCA) reference dataset (`celldex::HumanPrimaryCellAtlasData()`).
 Spearman correlation scores were computed against all reference profiles; pruned
 labels (NA for low-confidence calls) were used.
 
-### Marker gene scoring (manual)
+#### Marker gene scoring (manual)
 Mean log-normalised expression of canonical marker gene sets per Leiden cluster.
 11 cell types were scored using 6–10 markers each (defined in
 `scrna_functions.MARKER_SETS`).
 
-### 4-way majority vote
+#### 4-way majority vote
 The four evidence sources were combined per cluster:
 
 - CellTypist fine label
@@ -109,7 +107,7 @@ reference database. Final labels were stored in `adata.obs["manual_celltype"]`.
 
 ---
 
-## 04 · Differential expression analysis (`04_dea.ipynb`, `scripts/dea_functions.py`)
+### 04 · Differential expression analysis 
 
 The Wilcoxon rank-sum test was applied via `sc.tl.rank_genes_groups` comparing
 tumor tissue (HCC2) against normal-adjacent tissue (HCC1). DEGs were retained if:
@@ -117,15 +115,14 @@ tumor tissue (HCC2) against normal-adjacent tissue (HCC1). DEGs were retained if
 - Adjusted p-value < 0.05 (Benjamini-Hochberg correction)
 - |log2 fold change| > 1
 
-This produced **1,178 significant DEGs**: 926 upregulated in tumor, 252 downregulated.
+This produced **1,385 significant DEGs**: 335 upregulated in tumor, 1,050 downregulated.
 Results exported to `data/processed/dea_results.csv`.
 
 ---
 
-## 05 · GSEA (`05_gsea.ipynb`, `scripts/gsea_functions.py`)
+### 05 · GSEA 
 
-A ranked gene list sorted descending by log2FC was prepared from all DEGs
-(significant and non-significant) and passed to clusterProfiler in R via rpy2.
+A ranked gene list sorted descending by log2FC was prepared from all DEGs and passed to clusterProfiler in R via rpy2.
 
 **Gene symbol → Entrez ID mapping** used `bitr` from `org.Hs.eg.db`.
 
@@ -145,10 +142,10 @@ pathway descriptions: lipid metabolism, glycolysis/energy, PI3K-AKT/Wnt, and
 immune regulation.
 
 ---
+## Target Prioritisation (`02_target_prioritisation.ipynb`)
+### PPI Network
 
-## P1 · PPI Network (`P1_ppi_network.ipynb`, `scripts/ppi_functions.py`)
-
-The 1,178 significant DEGs were submitted to the
+The 1,385 significant DEGs were submitted to the
 [STRING API](https://string-db.org/api/json/network) in batches of 500 genes.
 
 **Parameters:**
@@ -172,39 +169,11 @@ edge weights set to STRING combined scores. Isolated nodes were removed.
 | Eigenvector centrality | `nx.eigenvector_centrality(max_iter=500, weight="weight")` |
 
 Each measure was normalised to [0, 1] before averaging. Hub scores are used as
-node features in the GNN (notebook P4).
+node features in the GNN.
 
 ---
 
-## P2 · Survival filter (`P2_survival_filter.ipynb`, `scripts/survival_functions.py`)
-
-Clinical and gene expression data for TCGA-LIHC (~374 HCC patients, primary
-tumors only) were downloaded from the
-[UCSC Xena public hub](https://xenabrowse.com). If the download fails, the
-notebook falls back to realistic simulated data (controlled random seed,
-protective effect added for APOE/ALB, risk effect for XIST/FTL).
-
-For each DEG with available expression data, patients were split at the median
-expression level. The following tests were run:
-
-- **Kaplan-Meier log-rank test** — `lifelines.statistics.logrank_test`
-- **Cox proportional-hazards regression** — `lifelines.CoxPHFitter(penalizer=0.1)`
-  on standardised expression
-
-**Filter criteria** (all three must pass):
-
-| Criterion | Threshold |
-|-----------|-----------|
-| KM log-rank p | < 0.05 |
-| Cox p | < 0.05 |
-| Hazard ratio | < 0.8 or > 1.2 |
-
-Genes passing all filters are exported as `survival_filtered_genes.csv` and
-receive a +0.10 bonus in the DGI composite score (notebook P3).
-
----
-
-## P3 · Drug–gene interactions (`P3_drug_gene_interactions.ipynb`, `scripts/dgi_functions.py`)
+### Drug–gene interactions
 
 Drug-gene interactions were queried from up to three databases:
 
@@ -234,14 +203,14 @@ before scoring.
 
 ---
 
-## P4 · GNN (`P4_gnn.ipynb`, `scripts/gnn_functions.py`)
+## GNN (`03_gnn_drug_ranking.ipynb`)
 
 ### Graph construction
 
 A heterogeneous bipartite graph was constructed with PyTorch Geometric:
 
 - **Nodes:** genes (features: hub score, survival target flag) and drugs
-  (15 binary/numeric features from P3)
+  (15 binary/numeric features)
 - **Edges:** bidirectional drug-gene interactions weighted by composite score
 - **Node features** were standardised with `StandardScaler`
 - **Split:** 70% train / 15% validation / 15% test (stratified random, seed=42)
@@ -277,7 +246,7 @@ pairs in the graph. Drug candidates were ranked by predicted score descending.
 
 ### Google Colab compatibility
 
-Notebook P4 auto-detects the Colab runtime, installs PyTorch Geometric with
+Notebook 03 auto-detects the Colab runtime, installs PyTorch Geometric with
 the correct CUDA wheel URL, and uses Colab session paths for all file I/O.
 No manual configuration is required beyond uploading `dgi_edges_gnn.csv`.
 
