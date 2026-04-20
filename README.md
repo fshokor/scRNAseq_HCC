@@ -14,11 +14,11 @@ HCC is a highly heterogeneous and aggressive cancer, where bulk RNA-seq fails to
 The pipeline runs in three main notebooks, each producing a human-readable
 HTML report alongside its analytical outputs:
 
-| Notebook | What it does |
-|----------|-------------|
-| **01 · scRNA-seq Analysis** | QC, normalisation, UMAP clustering, 4-way cell-type annotation, DEA, GSEA |
-| **02 · Target Prioritisation** | PPI hub gene network (STRING), drug–gene interactions (DGIdb, ChEMBL, OpenTargets) |
-| **03 · GNN Drug Ranking** | Trains GCN / GAT / GraphSAGE on the interaction graph, re-scores all drug–gene pairs, produces a ranked repurposing list |
+| # | Notebook | What it does | Report |
+|---|----------|-------------|--------|
+| 01 | [`01_scrna_analysis.ipynb`](notebooks/01_scrna_analysis.ipynb) | QC, clustering, 4-way cell-type annotation, DEA, GSEA | [📄 Report](reports/01_scrna_analysis_report.html) |
+| 02 | [`02_target_prioritisation.ipynb`](notebooks/02_target_prioritisation.ipynb) | PPI network, hub gene ranking, drug–gene interactions | [📄 Report](reports/02_target_prioritisation_report.html) |
+| 03 | [`03_gnn_drug_ranking.ipynb`](notebooks/03_gnn_drug_ranking.ipynb) | GNN training (GCN / GAT / GraphSAGE), drug ranking, interaction network | [📄 Report](reports/03_gnn_drug_ranking_report.html) |
 
 ---
 
