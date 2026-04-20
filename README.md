@@ -1,5 +1,5 @@
 # Single-cell RNA-seq Analysis of Hepatocellular Carcinoma (HCC)
----
+
 This project reproduces and explores key concepts from a recent study on integrating single-cell RNA sequencing (scRNA-seq) with computational approaches to better understand hepatocellular carcinoma (HCC). The analysis focuses on dissecting tumor heterogeneity, characterizing the tumor microenvironment, and identifying potential therapeutic targets.
 
 HCC is a highly heterogeneous and aggressive cancer, where bulk RNA-seq fails to capture the complexity of cellular populations. Using single-cell analysis, this project aims to provide a high-resolution view of tumor biology and reproduce core analytical steps inspired by the reference study .
