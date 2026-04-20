@@ -471,8 +471,8 @@ def plot_dgi_dashboard(dgi_df: pd.DataFrame, figures_dir,
     # Legend ABOVE the bars — completely outside the data area
     ax3.legend(
         fontsize=8, framealpha=0.90,
-        loc="lower left",
-        bbox_to_anchor=(0.0, 1.02),     # above the axes
+        loc="upper right",
+        # bbox_to_anchor=(0.0, 1.02),     # above the axes
         ncol=2, borderpad=0.7,
     )
  
