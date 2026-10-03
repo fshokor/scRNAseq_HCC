@@ -11,15 +11,15 @@ print_gsea_summary    — print top terms per ontology from saved CSVs
 """
 
 from __future__ import annotations
- 
+
 from pathlib import Path
 import re
- 
+
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
- 
+
 
 
 # HCC-relevant biological themes (used for targeted reporting)
@@ -36,24 +36,39 @@ suppressPackageStartupMessages({
     library(clusterProfiler); library(org.Hs.eg.db)
     library(enrichplot);      library(ggplot2)
 })
+writeLines(capture.output(sessionInfo()), paste0(TABLES_DIR, "/r_session_info.txt"))
 
-rnk <- read.table(paste0(PROC_DIR, "/ranked_genes_log2fc.tsv"),
+rnk <- read.table(RANK_FILE,
                   sep="\t", header=FALSE, stringsAsFactors=FALSE)
-colnames(rnk) <- c("SYMBOL", "log2FC")
-rnk <- rnk[order(rnk$log2FC, decreasing=TRUE), ]
+colnames(rnk) <- c("SYMBOL", "rank_metric")
+rnk <- rnk[is.finite(rnk$rank_metric), ]
+rnk <- rnk[order(rnk$rank_metric, decreasing=TRUE), ]
 
 mapping  <- bitr(rnk$SYMBOL, fromType="SYMBOL",
                  toType="ENTREZID", OrgDb=org.Hs.eg.db)
-rnk2     <- merge(rnk, mapping, by="SYMBOL")
-rnk2     <- rnk2[order(rnk2$log2FC, decreasing=TRUE), ]
-geneList <- rnk2$log2FC
+mapping <- unique(mapping)
+ambiguous <- names(which(table(mapping$SYMBOL) > 1))
+mapping <- mapping[!mapping$SYMBOL %in% ambiguous, ]
+rnk2 <- merge(rnk, mapping, by="SYMBOL")
+# Omit ambiguous symbol mappings; resolve shared Entrez IDs deterministically.
+rnk2 <- rnk2[order(-abs(rnk2$rank_metric), rnk2$SYMBOL), ]
+duplicate_entrez <- sum(duplicated(rnk2$ENTREZID))
+rnk2 <- rnk2[!duplicated(rnk2$ENTREZID), ]
+rnk2 <- rnk2[order(rnk2$rank_metric, decreasing=TRUE), ]
+if (nrow(rnk2) < 15) stop("Too few uniquely mapped genes for GSEA")
+write.csv(rnk2, paste0(TABLES_DIR, "/rank_mapping.csv"), row.names=FALSE)
+write.csv(data.frame(input_genes=nrow(rnk), mapped_unique_entrez=nrow(rnk2),
+                     ambiguous_symbols=length(ambiguous),
+                     duplicate_entrez_removed=duplicate_entrez),
+          paste0(TABLES_DIR, "/mapping_summary.csv"), row.names=FALSE)
+geneList <- rnk2$rank_metric
 names(geneList) <- rnk2$ENTREZID
 
 cat(sprintf("Genes mapped to Entrez: %d / %d\n",
             length(geneList), nrow(rnk)))
 
 PARAMS <- list(minGSSize=15, maxGSSize=500,
-               pvalueCutoff=0.05, verbose=FALSE)
+               pvalueCutoff=1, pAdjustMethod="BH", verbose=FALSE, eps=0)
 set.seed(42)
 
 cat("Running GO-BP...\n")
@@ -83,10 +98,13 @@ cat(sprintf("KEGG  : %d pathways\n", nrow(as.data.frame(gsea_kegg))))
 # ── Dot plots ─────────────────────────────────────────────────────────────
 safe_dot <- function(obj, title, showCat=15) {
     df <- as.data.frame(obj)
+    df <- df[!is.na(df$p.adjust) & df$p.adjust <= GSEA_FDR, ]
     if (nrow(df) == 0) {
         cat(sprintf("No results for '%s'\n", title)); return()
     }
-    p <- dotplot(obj, showCategory=min(showCat, nrow(df))) +
+    filtered <- obj
+    filtered@result <- df
+    p <- dotplot(filtered, showCategory=min(showCat, nrow(df))) +
          ggtitle(title) + theme_bw(base_size=11)
     fname <- paste0(FIGURES_DIR, "/gsea_",
                     gsub(" ", "_", tolower(title)), ".png")
@@ -101,8 +119,11 @@ safe_dot(gsea_kegg, "KEGG Pathways")
 
 # ── Ridge plot ────────────────────────────────────────────────────────────
 bp_df <- as.data.frame(gsea_bp)
+bp_df <- bp_df[!is.na(bp_df$p.adjust) & bp_df$p.adjust <= GSEA_FDR, ]
 if (nrow(bp_df) > 0) {
-    p <- ridgeplot(gsea_bp, showCategory=min(15, nrow(bp_df))) +
+    filtered_bp <- gsea_bp
+    filtered_bp@result <- bp_df
+    p <- ridgeplot(filtered_bp, showCategory=min(15, nrow(bp_df))) +
          ggtitle("GO-BP enrichment distribution") + theme_bw(base_size=10)
     ggsave(paste0(FIGURES_DIR, "/gsea_ridgeplot_bp.png"),
            p, width=10, height=8, dpi=200)
@@ -134,51 +155,83 @@ for (theme_name in names(themes)) {
 }
 
 # ── Export CSV tables ─────────────────────────────────────────────────────
-write.csv(as.data.frame(gsea_bp),
+export_gsea <- function(obj) {
+    df <- as.data.frame(obj)
+    if (nrow(df) == 0) {
+        df <- data.frame(ID=character(), Description=character(), NES=numeric(),
+                         pvalue=numeric(), p.adjust=numeric(),
+                         core_enrichment=character(), leading_edge=character())
+    }
+    # Entrez IDs and readable symbols remain separate. leading_edge contains
+    # tags/list/signal statistics, NOT leading-edge gene identifiers.
+    if (nrow(df) > 0) {
+        id_symbols <- setNames(rnk2$SYMBOL, rnk2$ENTREZID)
+        df$core_enrichment_symbols <- vapply(df$core_enrichment, function(ids) {
+            symbols <- unname(id_symbols[strsplit(ids, "/", fixed=TRUE)[[1]]])
+            paste(unique(symbols[!is.na(symbols)]), collapse="/")
+        }, character(1))
+    } else {
+        df$core_enrichment_symbols <- character(0)
+    }
+    df$contrast <- rep(CONTRAST_ID, nrow(df))
+    df$significant <- !is.na(df$p.adjust) & df$p.adjust <= GSEA_FDR
+    df
+}
+write.csv(export_gsea(gsea_bp),
           paste0(TABLES_DIR, "/gsea_go_bp.csv"),   row.names=FALSE)
-write.csv(as.data.frame(gsea_mf),
+write.csv(export_gsea(gsea_mf),
           paste0(TABLES_DIR, "/gsea_go_mf.csv"),   row.names=FALSE)
-write.csv(as.data.frame(gsea_cc),
+write.csv(export_gsea(gsea_cc),
           paste0(TABLES_DIR, "/gsea_go_cc.csv"),   row.names=FALSE)
-write.csv(as.data.frame(gsea_kegg),
+write.csv(export_gsea(gsea_kegg),
           paste0(TABLES_DIR, "/gsea_kegg.csv"),    row.names=FALSE)
 cat("CSV tables saved.\n")
 """
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def prepare_ranked_list(dea_path, proc_dir):
+def prepare_ranked_list(dea_path, proc_dir, metric="scores"):
     """
     Build and save a ranked gene list from DEA results.
 
-    Ranks all genes by log2FC (not just significant ones).
-    Saves to data/processed/ranked_genes_log2fc.tsv for R.
+    Rank a full DE table by a signed statistic (default Wilcoxon score).
+    No significance or fold-change filtering is performed here.
+    Accepts a DataFrame or CSV path; saves ranked_genes.tsv for R.
 
     Parameters
     ----------
     dea_path : Path
-        Path to dea_results.csv.
+        Full DE CSV path, or a full DE DataFrame (not the significant shortlist).
     proc_dir : Path
         Output directory (data/processed/).
 
     Returns
     -------
     ranked : pd.DataFrame
-        Columns: gene, log2FC — sorted descending by log2FC.
+        Columns: gene and the chosen metric, sorted descending by signed metric.
     """
-    dea = pd.read_csv(dea_path)
-    ranked = (dea[["gene", "log2FC"]].dropna()
-              .groupby("gene", as_index=False).mean()
-              .sort_values("log2FC", ascending=False))
+    dea = dea_path.copy() if isinstance(dea_path, pd.DataFrame) else pd.read_csv(dea_path)
+    if not {"gene", metric}.issubset(dea.columns):
+        raise ValueError(f"Full DE results must contain gene and {metric!r}")
+    if dea["gene"].duplicated().any():
+        raise ValueError("Duplicate gene identifiers: resolve before GSEA")
+    ranked = dea[["gene", metric]].copy()
+    ranked[metric] = pd.to_numeric(ranked[metric], errors="coerce")
+    ranked = ranked.loc[ranked["gene"].notna() & np.isfinite(ranked[metric])]
+    ranked = ranked.sort_values([metric, "gene"], ascending=[False, True])
+    if ranked.empty:
+        raise ValueError("No finite ranking statistics")
 
-    out = proc_dir / "ranked_genes_log2fc.tsv"
+    proc_dir = Path(proc_dir)
+    proc_dir.mkdir(parents=True, exist_ok=True)
+    out = proc_dir / "ranked_genes.tsv"
     ranked.to_csv(out, sep="\t", index=False, header=False)
-    print(f"Ranked list: {len(ranked)} genes → {out}")
+    print(f"Ranked list: {len(ranked)} genes -> {out}")
     return ranked
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def run_gsea_r(ro, proc_dir, figures_dir, tables_dir):
+def run_gsea_r(ro, proc_dir, figures_dir, tables_dir, contrast_id="pooled", fdr=0.05):
     """
     Execute the full GSEA pipeline in R via rpy2.
 
@@ -196,21 +249,72 @@ def run_gsea_r(ro, proc_dir, figures_dir, tables_dir):
     proc_dir, figures_dir, tables_dir : Path
         Project paths passed into R as string variables.
     """
+    for directory in [proc_dir, figures_dir, tables_dir]:
+        Path(directory).mkdir(parents=True, exist_ok=True)
+    rank_file = Path(proc_dir) / "ranked_genes.tsv"
+    if not rank_file.exists():
+        raise FileNotFoundError(rank_file)
     ro.globalenv["PROC_DIR"]    = str(proc_dir)
     ro.globalenv["FIGURES_DIR"] = str(figures_dir)
     ro.globalenv["TABLES_DIR"]  = str(tables_dir)
+    ro.globalenv["RANK_FILE"] = str(rank_file)
+    ro.globalenv["CONTRAST_ID"] = contrast_id
+    ro.globalenv["GSEA_FDR"] = float(fdr)
 
     try:
         ro.r(_R_GSEA_SCRIPT)
         print("\n✓ GSEA complete")
     except Exception as e:
-        print(f"\n✗ R error: {e}")
-        print("Check that clusterProfiler and org.Hs.eg.db are installed.")
-        print("Run: Rscript env/r_packages.R")
+        raise RuntimeError(f"GSEA failed for {contrast_id}; do not reuse old tables") from e
+
+
+def run_contrast_gsea(ro, de_analysis, tables_dir, fdr=0.05):
+    """Run ranked GSEA for every completed contrast; record failures explicitly."""
+    import json
+    rows = []
+    for contrast, result in de_analysis["results"].items():
+        directory = Path(tables_dir) / contrast
+        directory.mkdir(parents=True, exist_ok=True)
+        result["tables_dir"] = directory
+        result["gsea_status"] = "failed"
+        status_file = directory / "gsea_status.json"
+        status_file.write_text(json.dumps({"status": "running", "contrast": contrast}), encoding="utf-8")
+        try:
+            # A successful run with no enriched terms creates no plot. Clear
+            # only this contrast's generated GSEA figures so older plots cannot
+            # be presented as results from the new run. DE plots are untouched.
+            for old_figure in Path(result["figures_dir"]).glob("gsea_*.png"):
+                if old_figure.is_file():
+                    old_figure.unlink()
+            prepare_ranked_list(result["all_genes"], result["proc_dir"])
+            run_gsea_r(ro, result["proc_dir"], result["figures_dir"], directory,
+                       contrast_id=contrast, fdr=fdr)
+            result["gsea_status"] = "completed"
+            row = {"contrast": contrast, "status": "completed", "error": ""}
+        except Exception as error:
+            row = {"contrast": contrast, "status": "failed", "error": str(error)}
+            print(f"GSEA failed: {contrast}: {error}")
+        status_file.write_text(json.dumps({**row, "ranking_metric": "scores",
+                                          "fdr": fdr, "seed": 42}, indent=2), encoding="utf-8")
+        rows.append(row)
+    summary = pd.DataFrame(rows, columns=["contrast", "status", "error"])
+    Path(tables_dir).mkdir(parents=True, exist_ok=True)
+    summary.to_csv(Path(tables_dir) / "gsea_run_summary.csv", index=False)
+    return summary
+
+
+def _require_current_gsea(tables_dir):
+    """Reject stale tables from a failed/incomplete managed rerun."""
+    import json
+    status_file = Path(tables_dir) / "gsea_status.json"
+    if status_file.exists():
+        status = json.loads(status_file.read_text(encoding="utf-8"))
+        if status.get("status") != "completed":
+            raise RuntimeError(f"GSEA is not complete in {tables_dir}: {status.get('status')}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def print_gsea_summary(tables_dir):
+def print_gsea_summary(tables_dir, fdr=0.05):
     """
     Print a concise summary of GSEA results from the saved CSV tables.
 
@@ -222,6 +326,8 @@ def print_gsea_summary(tables_dir):
     tables_dir : Path
         results/tables/ directory.
     """
+    _require_current_gsea(tables_dir)
+    tables_dir = Path(tables_dir)
     print("── GSEA results summary ──\n")
     for label, fname in [("GO-BP",  "gsea_go_bp.csv"),
                           ("GO-MF",  "gsea_go_mf.csv"),
@@ -232,9 +338,11 @@ def print_gsea_summary(tables_dir):
             print(f"  {label}: file not found (R step may have failed)")
             continue
         df = pd.read_csv(fpath)
+        if "p.adjust" in df:
+            df = df.loc[df["p.adjust"] <= fdr]
         print(f"  {label}: {len(df)} enriched terms")
         if len(df) > 0 and "Description" in df.columns and "NES" in df.columns:
-            top = df.nlargest(3, "NES")[["Description", "NES", "p.adjust"]]
+            top = df.assign(abs_nes=df["NES"].abs()).nlargest(5, "abs_nes")[["Description", "NES", "p.adjust"]]
             print(top.to_string(index=False))
         print()
 
@@ -243,13 +351,14 @@ def print_gsea_summary(tables_dir):
         return
 
     bp_df = pd.read_csv(bp_file)
+    bp_df = bp_df.loc[bp_df["p.adjust"] <= fdr]
     print("── HCC-relevant pathway hits (GO-BP) ──\n")
     for theme, pattern in HCC_THEMES.items():
         hits = bp_df[bp_df["Description"].str.contains(
             pattern, case=False, na=False, regex=True)]
         print(f"  {theme}: {len(hits)} terms")
         if len(hits) > 0:
-            top = hits.nlargest(3, "NES")[["Description", "NES"]].to_string(index=False)
+            top = hits.assign(abs_nes=hits["NES"].abs()).nlargest(3, "abs_nes")[["Description", "NES"]].to_string(index=False)
             for line in top.split("\n")[1:]:
                 print(f"    {line.strip()}")
         print()
@@ -265,11 +374,11 @@ def query_gene_pathways(
 ) -> pd.DataFrame:
     """
     Look up which enriched pathways a gene belongs to (as a leading-edge gene).
- 
+
     Uses the `core_enrichment` column saved by clusterProfiler's gseGO /
     gseKEGG — these are the genes that actually drove the enrichment score
     for each pathway, not just any gene in the gene set.
- 
+
     Parameters
     ----------
     gene : str
@@ -284,15 +393,15 @@ def query_gene_pathways(
         Which ontologies to search.  Default: all four.
     adj_p_thresh : float
         Only return pathways with p.adjust ≤ this value.
- 
+
     Returns
     -------
     pd.DataFrame with columns:
         ontology, pathway_id, description, NES, adj_p,
         regulation (up / down), [log2FC, dea_padj if dea_path given]
- 
+
     Empty DataFrame if the gene is not a leading-edge gene in any pathway.
- 
+
     Examples
     --------
     >>> result = query_gene_pathways("APOE", TABLES_DIR, PROC_DIR / "dea_results.csv")
@@ -300,7 +409,8 @@ def query_gene_pathways(
     """
     tables_dir = Path(tables_dir)
     gene_upper = gene.strip().upper()
- 
+    _require_current_gsea(tables_dir)
+
     # File name map
     ont_files = {
         "GO-BP" : tables_dir / "gsea_go_bp.csv",
@@ -308,15 +418,15 @@ def query_gene_pathways(
         "GO-CC" : tables_dir / "gsea_go_cc.csv",
         "KEGG"  : tables_dir / "gsea_kegg.csv",
     }
- 
+
     hits = []
     for ont in ontologies:
         fpath = ont_files.get(ont)
         if fpath is None or not fpath.exists():
             continue
- 
+
         df = pd.read_csv(fpath)
- 
+
         # Normalise column names (clusterProfiler uses different names
         # depending on the version and export method)
         df.columns = [c.strip().lower().replace(".", "_") for c in df.columns]
@@ -328,28 +438,28 @@ def query_gene_pathways(
             (c for c in df.columns if c in ("id", "pathway_id", "go_id")),
             df.columns[0],
         )
- 
+
         # Filter by significance
         if "p_adjust" in df.columns:
             df = df[df["p_adjust"] <= adj_p_thresh]
         elif "padj" in df.columns:
             df = df[df["padj"] <= adj_p_thresh]
- 
-        if "core_enrichment" not in df.columns:
+
+        if "core_enrichment_symbols" not in df.columns:
             continue
- 
+
         # Search core_enrichment for the gene (slash-separated symbols)
-        mask = df["core_enrichment"].fillna("").str.upper().str.contains(
-            rf"(?:^|/)(?:{gene_upper})(?:/|$)", regex=True
+        mask = df["core_enrichment_symbols"].fillna("").str.upper().str.contains(
+            rf"(?:^|/)(?:{re.escape(gene_upper)})(?:/|$)", regex=True
         )
         matched = df[mask].copy()
- 
+
         if matched.empty:
             continue
- 
+
         nes_col  = "nes"  if "nes"  in matched.columns else "enrichmentscore"
         padj_col = "p_adjust" if "p_adjust" in matched.columns else "padj"
- 
+
         matched["ontology"]    = ont
         matched["pathway_id"]  = matched[id_col]
         matched["description"] = matched[desc_col]
@@ -358,12 +468,12 @@ def query_gene_pathways(
         matched["regulation"]  = matched["NES"].apply(
             lambda n: "up" if n > 0 else "down"
         )
- 
+
         hits.append(
             matched[["ontology", "pathway_id", "description",
                       "NES", "adj_p", "regulation"]]
         )
- 
+
     if not hits:
         print(f"  '{gene}' is not a leading-edge gene in any enriched pathway "
               f"(adj p ≤ {adj_p_thresh}).")
@@ -371,10 +481,10 @@ def query_gene_pathways(
             columns=["ontology", "pathway_id", "description",
                      "NES", "adj_p", "regulation"]
         )
- 
+
     result = pd.concat(hits, ignore_index=True)
     result = result.sort_values("NES", ascending=False).reset_index(drop=True)
- 
+
     # Optionally enrich with DEA fold-change
     if dea_path is not None:
         dea_path = Path(dea_path)
@@ -399,11 +509,11 @@ def query_gene_pathways(
                     result["log2FC"]   = float(row[fc_col].iloc[0])
                 if pv_col:
                     result["dea_padj"] = float(row[pv_col].iloc[0])
- 
+
     return result
 
-# ───────────────────────────────────────────────────────────────────────────── 
- 
+# ─────────────────────────────────────────────────────────────────────────────
+
 def plot_gene_pathway_membership(
     gene: str,
     result_df: pd.DataFrame,
@@ -412,10 +522,10 @@ def plot_gene_pathway_membership(
 ) -> plt.Figure | None:
     """
     Lollipop chart of NES values for all pathways a gene belongs to.
- 
+
     Up-regulated pathways (NES > 0) are shown in blue; down-regulated
     (NES < 0) in red.  Each dot is sized by –log10(adj_p).
- 
+
     Parameters
     ----------
     gene : str
@@ -427,7 +537,7 @@ def plot_gene_pathway_membership(
     top_n : int
         Maximum number of pathways to show (takes the ones with the
         largest |NES|).
- 
+
     Returns
     -------
     matplotlib Figure, or None if result_df is empty.
@@ -435,36 +545,36 @@ def plot_gene_pathway_membership(
     if result_df.empty:
         print(f"No pathway data to plot for '{gene}'.")
         return None
- 
+
     df = (result_df
           .assign(abs_nes=result_df["NES"].abs())
           .nlargest(top_n, "abs_nes")
           .sort_values("NES")
           .reset_index(drop=True))
- 
+
     # Truncate long pathway names
     df["label"] = df["description"].apply(
         lambda s: (s[:55] + "…") if len(str(s)) > 56 else str(s)
     )
- 
+
     colors  = ["#D85A30" if n < 0 else "#4361ee" for n in df["NES"]]
     sizes   = (-np.log10(df["adj_p"].clip(lower=1e-20)) * 18).clip(lower=20)
- 
+
     fig_h   = max(5.0, len(df) * 0.42)
     fig, ax = plt.subplots(figsize=(11, fig_h), facecolor="white")
- 
+
     # Lollipop stems
     for i, (nes, col) in enumerate(zip(df["NES"], colors)):
         ax.hlines(i, 0, nes, color=col, linewidth=1.4, alpha=0.55)
- 
+
     # Dots
     ax.scatter(df["NES"], range(len(df)),
                c=colors, s=sizes, zorder=3, alpha=0.90, edgecolors="white",
                linewidths=0.5)
- 
+
     # Zero line
     ax.axvline(0, color="#aaa", linewidth=0.9, ls="--", zorder=1)
- 
+
     ax.set_yticks(range(len(df)))
     ax.set_yticklabels(df["label"], fontsize=8.5)
     ax.set_xlabel("Normalised Enrichment Score (NES)", fontsize=10)
@@ -476,28 +586,28 @@ def plot_gene_pathway_membership(
         fontsize=10, pad=10,
     )
     ax.spines[["top", "right"]].set_visible(False)
- 
+
     # Ontology colour legend
     ont_present = df["ontology"].unique()
     ont_markers = [mpatches.Patch(color="#ccc", label=o) for o in ont_present]
     ax.legend(handles=ont_markers, loc="lower right",
               fontsize=8, title="Ontology", title_fontsize=8,
               framealpha=0.85)
- 
+
     # Annotate ontology next to each dot
     for i, (nes, ont) in enumerate(zip(df["NES"], df["ontology"])):
         ax.text(nes + (0.03 if nes >= 0 else -0.03), i,
                 ont, va="center",
                 ha="left" if nes >= 0 else "right",
                 fontsize=7, color="#555")
- 
+
     plt.tight_layout()
- 
+
     if figures_dir is not None:
         out = Path(figures_dir) / f"gene_pathways_{gene.upper()}.png"
         fig.savefig(out, dpi=150, bbox_inches="tight")
         print(f"Saved: {out}")
- 
+
     return fig
 
 
@@ -525,11 +635,11 @@ PATHWAY_THEMES = {
         r"collagen", r"fibronectin",
     ],
 }
- 
+
 # Fallback theme for pathways that don't match any keyword group
 _OTHER_THEME = "Other biological processes"
- 
- 
+
+
 def _assign_theme(description: str) -> str:
     desc = str(description)
     for theme, patterns in PATHWAY_THEMES.items():
@@ -537,8 +647,8 @@ def _assign_theme(description: str) -> str:
             if re.search(pat, desc, re.IGNORECASE):
                 return theme
     return _OTHER_THEME
- 
- 
+
+
 def _top_genes(core_enrichment: str, dea_df: pd.DataFrame | None,
                n: int = 3) -> str:
     """
@@ -547,9 +657,9 @@ def _top_genes(core_enrichment: str, dea_df: pd.DataFrame | None,
     """
     if not isinstance(core_enrichment, str) or not core_enrichment.strip():
         return "—"
- 
+
     genes = [g.strip() for g in core_enrichment.split("/") if g.strip()]
- 
+
     if dea_df is not None and not dea_df.empty:
         # Normalise DEA column names
         dea = dea_df.copy()
@@ -561,7 +671,7 @@ def _top_genes(core_enrichment: str, dea_df: pd.DataFrame | None,
         fc_col = next(
             (c for c in dea.columns if "log2" in c and "fc" in c), None
         )
- 
+
         if fc_col:
             fc_map = (
                 dea[[gene_col, fc_col]]
@@ -586,10 +696,10 @@ def _top_genes(core_enrichment: str, dea_df: pd.DataFrame | None,
                 else:
                     annotated.append(f"{g} ↓")
             return ", ".join(annotated)
- 
+
     return ", ".join(genes[:n])
- 
- 
+
+
 def _bio_function(theme: str, description: str) -> str:
     """Map theme → concise biological function label."""
     _MAP = {
@@ -600,8 +710,8 @@ def _bio_function(theme: str, description: str) -> str:
         _OTHER_THEME          : "Other regulatory processes",
     }
     return _MAP.get(theme, "Regulatory process")
- 
- 
+
+
 def generate_pathway_summary_table(
     tables_dir,
     figures_dir=None,
@@ -613,7 +723,7 @@ def generate_pathway_summary_table(
 ) -> tuple[pd.DataFrame, str]:
     """
     Build a publication-style pathway summary table (like Table 1 of Wang et al.).
- 
+
     Parameters
     ----------
     tables_dir : Path or str
@@ -632,14 +742,14 @@ def generate_pathway_summary_table(
         Which GSEA result files to include.
     extra_themes : dict or None
         Additional theme → [pattern, ...] entries to add to PATHWAY_THEMES.
- 
+
     Returns
     -------
     summary_df : pd.DataFrame
         Columns: Pathway, Enriched pathway, Key genes, Biological function
     html_table : str
         Self-contained HTML <table> element for embedding in reports.
- 
+
     Examples
     --------
     >>> df, html = generate_pathway_summary_table(
@@ -650,19 +760,20 @@ def generate_pathway_summary_table(
     >>> display(df)
     """
     tables_dir = Path(tables_dir)
- 
+    _require_current_gsea(tables_dir)
+
     # Optionally extend themes
     themes = dict(PATHWAY_THEMES)
     if extra_themes:
         themes.update(extra_themes)
- 
+
     # Load DEA for gene annotation
     dea_df = None
     if dea_path is not None:
         p = Path(dea_path)
         if p.exists():
             dea_df = pd.read_csv(p)
- 
+
     # File map
     ont_files = {
         "GO-BP": tables_dir / "gsea_go_bp.csv",
@@ -670,7 +781,7 @@ def generate_pathway_summary_table(
         "GO-CC": tables_dir / "gsea_go_cc.csv",
         "KEGG" : tables_dir / "gsea_kegg.csv",
     }
- 
+
     # ── Load and combine all GSEA results ────────────────────────────────────
     all_rows = []
     for ont in ontologies:
@@ -679,7 +790,7 @@ def generate_pathway_summary_table(
             continue
         df = pd.read_csv(fpath)
         df.columns = [c.strip() for c in df.columns]
- 
+
         # Normalise key column names
         col_map = {}
         for c in df.columns:
@@ -690,8 +801,9 @@ def generate_pathway_summary_table(
                 col_map[c] = "padj"
             elif cl in ("nes", "enrichmentscore", "enrichment_score"):
                 col_map[c] = "NES"
-            elif cl in ("core_enrichment", "leadingedge", "leading_edge"):
+            elif cl == "core_enrichment_symbols":
                 col_map[c] = "core_enrichment"
+        df = df.drop(columns=["core_enrichment"], errors="ignore")
         df = df.rename(columns=col_map)
         df = df.loc[:, ~df.columns.duplicated(keep="first")]
 
@@ -702,19 +814,19 @@ def generate_pathway_summary_table(
         df = df[df["padj"] <= adj_p_thresh].copy()
         df["ontology"] = ont
         all_rows.append(df)
- 
+
     if not all_rows:
         print("No significant GSEA results found — check adj_p_thresh or file paths.")
         return pd.DataFrame(), ""
- 
+
     combined = pd.concat(all_rows, ignore_index=True)
- 
+
     # ── Assign themes and pick best pathway per theme ─────────────────────────
     combined["theme"] = combined["Description"].apply(_assign_theme)
- 
+
     theme_order = list(themes.keys()) + [_OTHER_THEME]
     rows = []
- 
+
     for theme in theme_order:
         subset = combined[combined["theme"] == theme]
         if subset.empty:
@@ -724,19 +836,19 @@ def generate_pathway_summary_table(
                 .assign(abs_nes=subset["NES"].abs())
                 .sort_values(["padj", "abs_nes"], ascending=[True, False])
                 .iloc[0])
- 
+
         # Collect all pathway names in this theme for the "Enriched pathway" cell
         desc_list = subset.nsmallest(2, "padj")["Description"].tolist()
         enriched_str = " and ".join(desc_list) if len(desc_list) > 1 else desc_list[0]
         # Capitalise first letter, truncate if very long
         enriched_str = enriched_str[:80]
- 
+
         key_genes = (
             _top_genes(best.get("core_enrichment", ""), dea_df,
                        n=top_genes_per_row)
             if "core_enrichment" in best.index else "—"
         )
- 
+
         rows.append({
             "Pathway"           : theme,
             "Enriched pathway"  : enriched_str,
@@ -746,22 +858,22 @@ def generate_pathway_summary_table(
             "_padj"             : best["padj"],
             "_ontology"         : best["ontology"],
         })
- 
+
     if not rows:
         print("No rows generated — no pathways matched any theme.")
         return pd.DataFrame(), ""
- 
+
     summary_df = pd.DataFrame(rows)
     display_df = summary_df[
         ["Pathway", "Enriched pathway", "Key genes", "Biological function"]
     ].reset_index(drop=True)
- 
+
     # ── Save CSV ──────────────────────────────────────────────────────────────
     if figures_dir is not None:
         csv_out = Path(tables_dir) / "pathway_summary_table.csv"
         display_df.to_csv(csv_out, index=False)
         print(f"Saved CSV : {csv_out}")
- 
+
     # ── Generate publication figure ───────────────────────────────────────────
     if figures_dir is not None:
         fig = _render_table_figure(display_df)
@@ -769,26 +881,26 @@ def generate_pathway_summary_table(
         fig.savefig(out, dpi=200, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved PNG : {out}")
- 
+
     # ── Generate HTML snippet ─────────────────────────────────────────────────
     html_table = _render_html_table(display_df)
- 
+
     return display_df, html_table
 
 
 # ── Figure renderer ───────────────────────────────────────────────────────────
- 
+
 def _render_table_figure(df: pd.DataFrame) -> plt.Figure:
     """Render the summary DataFrame as a styled publication-style table figure."""
- 
+
     n_rows = len(df)
     n_cols = len(df.columns)
- 
+
     # Dynamic figure height
     fig_h = 1.2 + n_rows * 0.72
     fig, ax = plt.subplots(figsize=(14, fig_h), facecolor="white")
     ax.axis("off")
- 
+
     # Title — placed above the table with enough margin
     fig.text(
         0.5, 0.995,
@@ -798,18 +910,18 @@ def _render_table_figure(df: pd.DataFrame) -> plt.Figure:
         fontsize=11, fontweight="bold", color="#1a1a2e",
         transform=fig.transFigure,
     )
- 
+
     # Column widths (fractions of figure width)
     col_widths = [0.16, 0.28, 0.26, 0.28]
     col_headers = list(df.columns)
- 
+
     # Header colours
     HEADER_BG   = "#2c2c2c"
     HEADER_FG   = "white"
     ROW_BG_ODD  = "#f9f9f9"
     ROW_BG_EVEN = "white"
     BORDER_COL  = "#cccccc"
- 
+
     # Theme accent colours (left column)
     THEME_COLS = {
         "Metabolic process"   : "#4361ee",
@@ -818,7 +930,7 @@ def _render_table_figure(df: pd.DataFrame) -> plt.Figure:
         "Cellular interaction": "#1D9E75",
         "Other biological processes": "#888780",
     }
- 
+
     # Build table data as list-of-lists (wrap long text manually)
     def _wrap(text, max_chars=48):
         """Simple word-wrap for table cells."""
@@ -833,15 +945,15 @@ def _render_table_figure(df: pd.DataFrame) -> plt.Figure:
         if cur:
             lines.append(cur)
         return "\n".join(lines)
- 
+
     cell_data = [[_wrap(str(v), 44) for v in row] for _, row in df.iterrows()]
- 
+
     # ── Draw using matplotlib ─────────────────────────────────────────────────
     row_height = 0.78 / (n_rows + 1)   # +1 for header
     header_y   = 0.85                   # start below title
     table_left  = 0.02
     table_width = 0.96
- 
+
     # Header row
     x = table_left
     for ci, (hdr, cw) in enumerate(zip(col_headers, col_widths)):
@@ -861,7 +973,7 @@ def _render_table_figure(df: pd.DataFrame) -> plt.Figure:
             transform=fig.transFigure,
         )
         x += w
- 
+
     # Data rows
     for ri, row_vals in enumerate(cell_data):
         row_y  = header_y - (ri + 1) * row_height
@@ -869,10 +981,10 @@ def _render_table_figure(df: pd.DataFrame) -> plt.Figure:
         x      = table_left
         theme  = df.iloc[ri]["Pathway"]
         accent = THEME_COLS.get(theme, "#888780")
- 
+
         for ci, (val, cw) in enumerate(zip(row_vals, col_widths)):
             w = cw * table_width
- 
+
             # Background
             rect = plt.Rectangle(
                 (x, row_y), w, row_height,
@@ -881,7 +993,7 @@ def _render_table_figure(df: pd.DataFrame) -> plt.Figure:
                 linewidth=0.5, clip_on=False,
             )
             fig.add_artist(rect)
- 
+
             # Accent bar on the left edge of the first column
             if ci == 0:
                 bar = plt.Rectangle(
@@ -891,7 +1003,7 @@ def _render_table_figure(df: pd.DataFrame) -> plt.Figure:
                     clip_on=False,
                 )
                 fig.add_artist(bar)
- 
+
             # Cell text
             fontweight = "bold" if ci == 0 else "normal"
             fig.text(
@@ -904,7 +1016,7 @@ def _render_table_figure(df: pd.DataFrame) -> plt.Figure:
                 multialignment="center",
             )
             x += w
- 
+
     # Bottom border
     fig.add_artist(plt.Line2D(
         [table_left, table_left + table_width],
@@ -913,7 +1025,7 @@ def _render_table_figure(df: pd.DataFrame) -> plt.Figure:
         transform=fig.transFigure,
         color=BORDER_COL, linewidth=0.8,
     ))
- 
+
     # Colour legend for themes
     patches = [
         mpatches.Patch(color=c, label=t)
@@ -929,15 +1041,15 @@ def _render_table_figure(df: pd.DataFrame) -> plt.Figure:
             title="Biological theme", title_fontsize=8,
             ncol=len(patches),
         )
- 
+
     return fig
 
 
 # ── HTML renderer ─────────────────────────────────────────────────────────────
- 
+
 def _render_html_table(df: pd.DataFrame) -> str:
     """Return a styled HTML table string for embedding in reports."""
- 
+
     THEME_COLS_HEX = {
         "Metabolic process"   : "#4361ee",
         "Immune regulation"   : "#7209b7",
@@ -945,13 +1057,13 @@ def _render_html_table(df: pd.DataFrame) -> str:
         "Cellular interaction": "#1D9E75",
         "Other biological processes": "#888780",
     }
- 
+
     header_html = "".join(
         f"<th style='background:#2c2c2c;color:white;padding:8px 12px;"
         f"font-size:13px;text-align:left;border:1px solid #555'>{col}</th>"
         for col in df.columns
     )
- 
+
     rows_html = ""
     for i, (_, row) in enumerate(df.iterrows()):
         bg    = "#f9f9f9" if i % 2 == 0 else "white"
@@ -969,7 +1081,7 @@ def _render_html_table(df: pd.DataFrame) -> str:
                 f"{border_left}{fw}'>{val}</td>"
             )
         rows_html += f"<tr>{cells}</tr>"
- 
+
     return (
         f"<table style='border-collapse:collapse;width:100%;font-family:"
         f"\"Segoe UI\",sans-serif;'>"
@@ -977,4 +1089,4 @@ def _render_html_table(df: pd.DataFrame) -> str:
         f"<tbody>{rows_html}</tbody>"
         f"</table>"
     )
- 
+

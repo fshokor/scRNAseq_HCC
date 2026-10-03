@@ -150,6 +150,8 @@ def generate_scrna_report(
     padj_thresh, log2fc_thresh, group,
     # paths
     figures_dir, tables_dir, reports_dir,
+    de_analysis=None,
+    gsea_summary=None,
 ):
     """
     Generate an HTML summary report for notebook 01 (scRNA-seq analysis).
@@ -166,6 +168,31 @@ def generate_scrna_report(
     figures_dir = Path(figures_dir)
     tables_dir  = Path(tables_dir)
     reports_dir = Path(reports_dir)
+    pooled = de_analysis["results"].get("pooled", {}) if de_analysis else {}
+    pooled_figures = Path(pooled.get("figures_dir", figures_dir))
+    pooled_tables = Path(pooled.get("tables_dir", tables_dir))
+    pooled_gsea_ok = not de_analysis or pooled.get("gsea_status") == "completed"
+    contrast_html = ""
+    if de_analysis:
+        from html import escape
+        contrast_html = (
+            "<h3>Pooled and within-cell-type sample contrasts</h3>"
+            "<p>One sample per condition: all cell-level DE and preranked GSEA "
+            "statistics are exploratory. Pooled differences include cell composition; "
+            "broad cell-type differences may include subtype composition.</p>"
+            + de_analysis["summary_df"].to_html(index=False, escape=True)
+        )
+        if gsea_summary is not None:
+            contrast_html += "<h3>GSEA run status</h3>" + gsea_summary.to_html(index=False, escape=True)
+        for contrast, result in de_analysis["results"].items():
+            if contrast == "pooled":
+                continue
+            contrast_html += f"<h3>{escape(contrast)}</h3>"
+            contrast_html += _img_tag(_png_to_b64(Path(result["figures_dir"]) / "volcano_plot.png"),
+                                      "All tested genes; highlighted genes pass the reporting thresholds")
+            if result.get("gsea_status") == "completed":
+                contrast_html += _img_tag(_png_to_b64(Path(result["figures_dir"]) / "gsea_go_biological_process.png"),
+                                          "GO-BP enrichment for this cell-type contrast")
 
     # ── Collect numbers (all from post-QC adata) ──────────────────────────────
     sample_counts = adata.obs["sample"].value_counts()
@@ -189,9 +216,10 @@ def generate_scrna_report(
     gsea_loaded = {}
     for ont, fname in [("GO-BP","gsea_go_bp.csv"),("GO-MF","gsea_go_mf.csv"),
                        ("KEGG","gsea_kegg.csv")]:
-        fpath = tables_dir / fname
-        if fpath.exists():
-            gsea_loaded[ont] = pd.read_csv(fpath)
+        fpath = pooled_tables / fname
+        if pooled_gsea_ok and fpath.exists():
+            frame = pd.read_csv(fpath)
+            gsea_loaded[ont] = frame.loc[frame["p.adjust"] <= padj_thresh] if "p.adjust" in frame else frame.iloc[:0]
 
     # ── Figures ───────────────────────────────────────────────────────────────
     # FIX [3]: corrected key names to match filenames produced by scrna_functions
@@ -205,10 +233,10 @@ def generate_scrna_report(
         "umap_annot"    : _png_to_b64(figures_dir / "umap_annotation.png"),
         "umap_sample"   : _png_to_b64(figures_dir / "umap_samplewise.png"),
         # DEA
-        "volcano"       : _png_to_b64(figures_dir / "volcano_plot.png"),
+        "volcano"       : _png_to_b64(pooled_figures / "volcano_plot.png"),
         # GSEA
-        "gsea_bp"       : _png_to_b64(figures_dir / "gsea_go_biological_process.png"),
-        "gsea_kegg"     : _png_to_b64(figures_dir / "gsea_kegg_pathways.png"),
+        "gsea_bp"       : _png_to_b64(pooled_figures / "gsea_go_biological_process.png") if pooled_gsea_ok else None,
+        "gsea_kegg"     : _png_to_b64(pooled_figures / "gsea_kegg_pathways.png") if pooled_gsea_ok else None,
     }
 
     # ── Annotation vote table ─────────────────────────────────────────────────
@@ -378,8 +406,9 @@ def generate_scrna_report(
 <h2>4 · Cell-type Annotation</h2>
 <div class="box">
   <p>Four evidence sources combined by <b>majority vote</b> per cluster:
-  CellTypist, ScType (liver-specific, double-weighted for parenchymal types),
-  SingleR (HPCA reference), and a curated marker-score method.</p>
+  CellTypist, ScType, SingleR (HPCA reference), and marker scoring, using
+  harmonized broad labels and equal weights. Reviewed labels incorporate
+  manual marker assessment; unresolved identities and QC concerns are flagged.</p>
 
   <h3>UMAP — annotated cell types</h3>
   {_img_tag(figs["umap_annot"], "UMAP coloured by majority-vote cell-type annotation")}
@@ -397,6 +426,8 @@ def generate_scrna_report(
 <div class="section">
 <h2>5 · Differential Expression Analysis</h2>
 <div class="box">
+  <p>The gene counts below describe the pooled tumor-versus-adjacent sample
+  contrast. They combine cell composition and expression differences.</p>
   <div class="grid">
     {_stat(str(n_degs), "significant DEGs")}
     {_stat(str(n_up),   "up-regulated in tumour")}
@@ -409,6 +440,8 @@ def generate_scrna_report(
     {_param_row("log₂ fold-change threshold", str(log2fc_thresh))}
     {_param_row("Comparison group",           str(group))}
   </table>
+  {_img_tag(figs["volcano"], "Pooled contrast: all tested genes, with the significant shortlist highlighted")}
+  {contrast_html}
   
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
     <div>

@@ -422,13 +422,16 @@ def marker_score_clusters(adata, leiden_col="leiden_res_0.50",
     return score_df
 
 
-def majority_vote(adata, score_df, leiden_col="leiden_res_0.50"):
+def majority_vote(adata, score_df, leiden_col="leiden_res_0.50", label_map=None):
     """
     Reconcile CellTypist, ScType, SingleR, and marker scores into a
-    single cell-type label via 4-way majority vote.
+    broad cell-type label via equally weighted, harmonized majority vote.
 
-    ScType gets double weight for parenchymal cell types
-    (Hepatocyte, Fibroblast, Endothelial) because it uses a liver-specific DB.
+    Labels are harmonized before each method's cluster mode is calculated.
+    Missing, nonspecific, and unmapped labels abstain. Original obs columns
+    are preserved; raw summaries and harmonized calls are returned in vote_df.
+    A call requires at least two agreeing methods and a strict majority of
+    active votes. Ties and unsupported pluralities become "Needs_review".
 
     Parameters
     ----------
@@ -436,40 +439,121 @@ def majority_vote(adata, score_df, leiden_col="leiden_res_0.50"):
     score_df : pd.DataFrame
         Output of marker_score_clusters().
     leiden_col : str
+    label_map : dict or None
+        Optional additional raw-label -> broad-label mappings. These override
+        defaults after case, whitespace, and underscore normalization. Inspect
+        markers before mapping ambiguous or previously unseen labels.
 
     Returns
     -------
     adata : AnnData
         With new adata.obs["manual_celltype"] column.
     vote_df : pd.DataFrame
-        Per-cluster vote summary.
+        Per-cluster raw/harmonized calls, abstentions, and agreement summary.
+        Agreement is a method-vote fraction, not a calibrated probability.
     """
     import pandas as pd
+    import re
     from collections import Counter
 
-    def _majority(series):
-        return series.value_counts().index[0]
+    def _key(value):
+        return re.sub(r"\s+", " ", str(value).replace("_", " ").strip()).casefold()
 
-    vote_df = pd.DataFrame({
-        "n_cells"     : adata.obs.groupby(leiden_col).size(),
-        "CellTypist"  : adata.obs.groupby(leiden_col)["celltypist_fine"].apply(_majority),
-        "ScType"      : adata.obs.groupby(leiden_col)["sctype_cell_type"].apply(_majority),
-        "SingleR_HPCA": adata.obs.groupby(leiden_col)["SingleR_HPCA"].apply(_majority),
-    })
+    aliases = {
+        "Macrophage": ["Macrophage", "Macrophages", "Kupffer cell", "Kupffer cells"],
+        "Monocyte": ["Monocyte", "Monocytes", "Classical monocytes", "Non-classical monocytes"],
+        "T_cell": ["T_cell", "T_cells", "CD8_T_cell", "CD4_T_cell"],
+        "B_cell": ["B_cell", "B_cells", "Memory B cells", "Naive B cells"],
+        "Plasma_cell": ["Plasma_cell", "Plasma_cells", "Plasmablast", "Plasmablasts"],
+        "NK_cell": ["NK_cell", "NK_cells", "Natural killer cell", "Natural killer cells"],
+        "NK_ILC": ["NK_ILC"],
+        "DC": ["DC", "DCs", "Dendritic cell", "Dendritic cells", "DC1", "DC2", "cDC1", "cDC2"],
+        "pDC": ["pDC", "pDCs", "Plasmacytoid dendritic cells"],
+        "Hepatocyte": ["Hepatocyte", "Hepatocytes"],
+        "Epithelial": ["Epithelial", "Epithelial_cell", "Epithelial_cells"],
+        "Cholangiocyte": ["Cholangiocyte", "Cholangiocytes"],
+        "Fibroblast": ["Fibroblast", "Fibroblasts"],
+        "Hepatic_stellate_cell": ["Hepatic stellate cell", "Hepatic stellate cells"],
+        "Endothelial": ["Endothelial", "Endothelial_cell", "Endothelial_cells"],
+        "Mast_cell": ["Mast_cell", "Mast_cells"],
+        "Neutrophil": ["Neutrophil", "Neutrophils"],
+        "Erythroid": ["Erythroid", "Erythroid cells", "Erythroblast", "Erythroblasts"],
+    }
+    mapping = {_key(raw): broad for broad, names in aliases.items() for raw in names}
+    abstain = {_key(x) for x in ["", "Unknown", "Unassigned", "Unclassified",
+                               "NA", "N/A", "NA_character_", "nan", "None",
+                               "not_run", "Immune system cells", "Immune cells"]}
+    if label_map:
+        mapping.update({_key(raw): broad for raw, broad in label_map.items()})
 
-    parenchymal = {"Hepatocyte", "Fibroblast", "Endothelial"}
+    def _harmonize(value):
+        if pd.isna(value) or _key(value) in abstain:
+            return None
+        key = _key(value)
+        if key in mapping:
+            return mapping[key]
+        # Preserve subtype strings in the originals, but pool explicit T/B
+        # cell predictions at lineage level (never infer lineage from "Tem").
+        if re.search(r"\bt cells?$", key):
+            return "T_cell"
+        if re.search(r"\bb cells?$", key):
+            return "B_cell"
+        return None
 
-    def _assign(row):
-        votes = [row["CellTypist"], row["ScType"], row["SingleR_HPCA"],
-                 score_df.loc[row.name, "best_by_score"]]
-        if row["ScType"] in parenchymal:
-            votes.append(row["ScType"])   # double weight
-        winner, _ = Counter(votes).most_common(1)[0]
-        return winner
+    def _mode(series):
+        counts = series.dropna().value_counts()
+        counts = counts[counts > 0]  # ignore unused categorical levels
+        if counts.empty:
+            return None
+        winners = counts[counts == counts.max()].index.tolist()
+        return winners[0] if len(winners) == 1 else None
 
-    vote_df["final_label"] = vote_df.apply(_assign, axis=1)
-    print("Cluster → final label:")
-    print(vote_df[["n_cells", "final_label"]].to_string())
+    if leiden_col not in adata.obs:
+        raise KeyError(f"Cluster column {leiden_col!r} not found")
+    if adata.obs[leiden_col].isna().any():
+        raise ValueError("Cluster assignments contain missing values")
+    if "best_by_score" not in score_df:
+        raise KeyError("score_df must contain 'best_by_score'")
+    marker_calls = score_df["best_by_score"].copy()
+    marker_calls.index = marker_calls.index.map(str)
+    if marker_calls.index.has_duplicates:
+        raise ValueError("score_df contains duplicate cluster IDs")
+
+    methods = {"CellTypist": "celltypist_fine", "ScType": "sctype_cell_type",
+               "SingleR_HPCA": "SingleR_HPCA"}
+    cluster_ids = adata.obs[leiden_col].astype(str)
+    rows = []
+    for cluster in cluster_ids.unique():
+        mask = cluster_ids == cluster
+        row = {"cluster": cluster, "n_cells": int(mask.sum())}
+        for method, column in methods.items():
+            raw = (adata.obs.loc[mask, column].astype(object) if column in adata.obs
+                   else pd.Series(dtype=object))
+            row[f"{method}_raw"] = " | ".join(sorted({str(x) for x in raw.dropna()}))
+            row[method] = _mode(raw.map(_harmonize))
+            row[f"{method}_unmapped"] = " | ".join(sorted({
+                str(x) for x in raw.dropna()
+                if _harmonize(x) is None and _key(x) not in abstain
+            }))
+        marker = marker_calls.get(cluster, None)
+        row["Markers_raw"] = marker
+        row["Markers"] = _harmonize(marker)
+        votes = [row[m] for m in [*methods, "Markers"] if row[m] is not None]
+        counts = Counter(votes)
+        top_count = max(counts.values(), default=0)
+        winners = sorted(label for label, count in counts.items() if count == top_count)
+        accepted = len(winners) == 1 and top_count >= 2 and top_count > len(votes) / 2
+        row.update(n_active_votes=len(votes), n_agree=top_count,
+                   agreement_fraction=top_count / len(votes) if votes else 0.0,
+                   candidate_labels=" | ".join(winners),
+                   vote_status=("majority" if accepted else "no_votes" if not votes
+                                else "tie" if len(winners) > 1 else "insufficient_agreement"),
+                   final_label=winners[0] if accepted else "Needs_review")
+        rows.append(row)
+
+    vote_df = pd.DataFrame(rows).set_index("cluster")
+    print("Cluster -> harmonized label (review unresolved calls):")
+    print(vote_df[["n_cells", "final_label", "n_active_votes", "n_agree", "vote_status"]].to_string())
 
     cluster_map = vote_df["final_label"].to_dict()
     adata.obs["manual_celltype"] = (
