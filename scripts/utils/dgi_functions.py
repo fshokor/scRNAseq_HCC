@@ -5,8 +5,8 @@ All logic for notebook P3 · Drug–Gene Interaction Collection.
 
 Functions
 ---------
-load_dgi_inputs     — load hub genes + survival targets
-collect_interactions — query selected databases + curated fallback
+load_dgi_inputs     — load all candidates including network isolates
+collect_interactions — collect auditable live evidence and explicit failure status
 build_dgi_dataframe — clean, deduplicate, and compute composite score
 build_gnn_edge_list — add GNN feature columns and export
 plot_dgi_dashboard  — 5-panel summary figure
@@ -43,7 +43,7 @@ PHASE_COL = {
 # ─────────────────────────────────────────────────────────────────────────────
 def load_dgi_inputs(tables_dir):
     """
-    Load hub gene list and survival target set from previous steps.
+    Load all network candidates, including isolates; survival is not a gate.
 
     Parameters
     ----------
@@ -55,121 +55,44 @@ def load_dgi_inputs(tables_dir):
         Hub gene symbols (input to database queries).
     hub_score_map : dict
         gene → hub_score (used in composite scoring).
-    surv_genes : set
-        Genes with significant survival association (get score bonus).
     """
     hub_df    = pd.read_csv(tables_dir / "hub_genes.csv")
     gene_list = hub_df.gene.dropna().unique().tolist()
     hub_score_map = (hub_df.set_index("gene")["hub_score"].to_dict()
                      if "hub_score" in hub_df.columns else {})
 
-    # surv_file = tables_dir / "survival_filtered_genes.csv"
-    # surv_genes = (set(pd.read_csv(surv_file)["gene"].dropna())
-    #               if surv_file.exists() else set())
-
-    print(f"Hub genes        : {len(gene_list)}")
-    # print(f"Survival targets : {len(surv_genes)}")
-    return gene_list, hub_score_map#, surv_genes
+    print(f"Candidates for drug queries: {len(gene_list)}")
+    return gene_list, hub_score_map
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def collect_interactions(gene_list,
-                         use_dgidb=True,
-                         use_chembl=True,
-                         use_opentargets=True,
-                         use_curated=True):
+def collect_interactions(gene_list, use_dgidb=True, use_chembl=False,
+                         use_opentargets=False, use_curated=False, return_status=False):
+    """Fetch live evidence; no hardcoded scientific fallback.
+
+    Source failures are explicit. DGIdb discards failed partial batches.
+    ChEMBL/OpenTargets legacy clients require an additional mapping/pagination
+    audit before scientific use, so they cannot be silently enabled here.
     """
-    Query selected databases and merge results.
-
-    Each flag independently enables or disables a data source.
-    The curated fallback automatically fills genes not covered by live APIs.
-
-    Parameters
-    ----------
-    gene_list : list
-        Gene symbols to query.
-    use_dgidb, use_chembl, use_opentargets : bool
-        Enable/disable each live API.
-    use_curated : bool
-        Enable/disable the built-in curated fallback dataset.
-
-    Returns
-    -------
-    all_edges : list of dict
-        Combined raw interaction records from all enabled sources.
-    apis_ok : list of str
-        Names of sources that returned at least one result.
-    """
-    # Import here so the function works in Colab without the full repo
-    import sys
-    from pathlib import Path
-
-    # Try to find and add scripts/ to path if not already there
-    for candidate in [Path(__file__).resolve().parent,
-                      Path.cwd() / "scripts",
-                      Path.cwd()]:
-        if (candidate / "utils" / "__init__.py").exists():
-            if str(candidate) not in sys.path:
-                sys.path.insert(0, str(candidate))
-            break
-
-    from utils.api_clients import (query_dgidb, query_chembl,
-                                   query_opentargets, get_curated_fallback)
-
-    all_edges, apis_ok = [], []
-
-    if use_dgidb:
-        print("Querying DGIdb...")
-        edges = query_dgidb(gene_list)
-        if edges:
-            all_edges.extend(edges)
-            apis_ok.append("DGIdb")
-            print(f"  → {len(edges)} interactions")
-        else:
-            print("  → No results (API unreachable or no matches)")
-
-    if use_chembl:
-        print("Querying ChEMBL...")
-        edges = query_chembl(gene_list)
-        if edges:
-            all_edges.extend(edges)
-            apis_ok.append("ChEMBL")
-            print(f"  → {len(edges)} interactions")
-        else:
-            print("  → No results (API unreachable or no matches)")
-
-    if use_opentargets:
-        print("Querying OpenTargets...")
-        edges = query_opentargets(gene_list)
-        if edges:
-            all_edges.extend(edges)
-            apis_ok.append("OpenTargets")
-            print(f"  → {len(edges)} interactions")
-        else:
-            print("  → No results (API unreachable or no matches)")
-
+    from utils.api_clients import query_dgidb
     if use_curated:
-        if not all_edges:
-            print("No live API results — loading full curated fallback...")
-            all_edges = get_curated_fallback(gene_list)
-            print(f"  → {len(all_edges)} curated interactions")
-        else:
-            covered = {e["gene"] for e in all_edges}
-            missing = [g for g in gene_list if g not in covered]
-            if missing:
-                curated = get_curated_fallback(missing)
-                all_edges.extend(curated)
-                print(f"Curated: {len(curated)} interactions added "
-                      f"for {len(missing)} uncovered genes")
-    elif not all_edges:
-        print("\nWarning: no databases selected and curated fallback is disabled.")
+        raise ValueError("Unverified hardcoded fallback disabled; supply cited records separately")
+    if use_chembl or use_opentargets:
+        raise ValueError("ChEMBL/OpenTargets clients need mapping/pagination validation before enabling")
+    all_edges, apis_ok, statuses = [], [], {}
+    if use_dgidb:
+        try:
+            records = query_dgidb(gene_list)
+            all_edges.extend(records)
+            apis_ok.append("DGIdb")
+            statuses["DGIdb"] = dict(status="completed", n_records=len(records))
+        except Exception as exc:
+            statuses["DGIdb"] = dict(status="failed", reason=str(exc), n_records=0)
+            print(f"DGIdb unavailable: {exc}")
+    else:
+        statuses["DGIdb"] = dict(status="disabled", n_records=0)
+    return (all_edges, apis_ok, statuses) if return_status else (all_edges, apis_ok)
 
-    print(f"\nSources used    : {apis_ok or ['curated fallback']}")
-    print(f"Raw interactions: {len(all_edges)}")
-    return all_edges, apis_ok
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 
 DRUG_FEAT_COLS = [
     "approved", "immunotherapy", "anti_neoplastic", "clinical_phase",
@@ -179,126 +102,118 @@ DRUG_FEAT_COLS = [
 ]
 
 
+def _tokens(value):
+    return {v.strip() for v in str(value).split(" | ") if v.strip() and v.strip() not in {"nan", "None", "<NA>"}}
+
+
 def build_dgi_dataframe(all_edges, hub_score_map, W):
+    """Evidence ranking, preserving provenance; unknown metadata stays missing.
+
+    Interaction scores are normalized ONLY for DGIdb. Other source scores are
+    not assumed comparable. Default weights put publications/phase at zero
+    to avoid double-counting and inference of clinical maturity from approval.
+    Drug IDs define identity when present; names alone are a flagged fallback.
     """
-    Convert raw interaction records into a clean, scored dataframe.
-
-    Steps:
-      1. Ensure all feature columns exist (fill missing with 0 / False)
-      2. Standardise types (bool, int, float)
-      3. Deduplicate gene-drug pairs (keep highest interaction_score)
-      4. Compute composite score as weighted sum
-
-    Parameters
-    ----------
-    all_edges : list of dict
-        Raw records from collect_interactions().
-    hub_score_map : dict
-        gene → hub_score.
-    surv_genes : set
-        Genes with survival association (get +0.10 bonus).
-    W : dict
-        Scoring weights: interaction, publications, phase, approved, hub.
-
-    Returns
-    -------
-    dgi_df : pd.DataFrame
-        Clean edge dataframe sorted by composite_score descending.
-    """
-    dgi_df = pd.DataFrame(all_edges)
-
-    for col in DRUG_FEAT_COLS:
-        if col not in dgi_df.columns:
-            dgi_df[col] = 0
+    expected = {"interaction", "publications", "phase", "approved", "hub"}
+    if set(W) != expected or any(v < 0 for v in W.values()) or not np.isclose(sum(W.values()), 1):
+        raise ValueError("Scoring weights must be nonnegative and sum to one")
+    columns = ["gene", "drug", "drug_id", "source", "interaction_type", "directionality",
+               "publication_ids", "evidence_sources", "reference_urls", "approved", "immunotherapy",
+               "anti_neoplastic", "clinical_phase", "interaction_score", "n_publications", "phase_scope",
+               "identity_basis", "record_count", "composite_score", "hub_score"]
+    if not all_edges:
+        return pd.DataFrame(columns=columns)
+    frame = pd.DataFrame(all_edges).copy()
+    for col in columns:
+        if col not in frame:
+            frame[col] = np.nan
+    if frame.gene.isna().any() or frame.drug.isna().any():
+        raise ValueError("Interactions require gene and drug identifiers")
+    frame["gene"] = frame.gene.str.strip().str.upper()
+    frame["drug"] = frame.drug.str.strip()
     for col in ["approved", "immunotherapy", "anti_neoplastic"]:
-        dgi_df[col] = dgi_df[col].fillna(False).astype(bool)
-    dgi_df["interaction_score"] = pd.to_numeric(
-        dgi_df.interaction_score, errors="coerce").fillna(0)
-    dgi_df["n_publications"] = pd.to_numeric(
-        dgi_df.n_publications, errors="coerce").fillna(0).astype(int)
-    dgi_df["clinical_phase"] = pd.to_numeric(
-        dgi_df.clinical_phase, errors="coerce").fillna(0).astype(int)
-    dgi_df["drug"] = dgi_df.drug.str.strip().str.title()
-    dgi_df["gene"] = dgi_df.gene.str.strip().str.upper()
+        def boolean(value):
+            if pd.isna(value): return pd.NA
+            if value in [True, 1, "True", "true"]: return True
+            if value in [False, 0, "False", "false"]: return False
+            raise ValueError(f"Invalid Boolean metadata: {value!r}")
+        frame[col] = frame[col].map(boolean).astype("boolean")
+    for col in ["interaction_score", "n_publications", "clinical_phase"]:
+        frame[col] = pd.to_numeric(frame[col], errors="coerce")
+    frame["drug_id"] = frame.drug_id.fillna("").astype(str).str.strip()
+    frame["_identity"] = np.where(frame.drug_id != "", "id:" + frame.drug_id,
+                                   "name:" + frame.drug.str.casefold())
+    records = []
+    for (_, identity), group in frame.groupby(["gene", "_identity"], sort=True):
+        record = group.iloc[0].drop(labels="_identity").to_dict()
+        for col in ["source", "drug_id", "interaction_type", "directionality", "publication_ids",
+                    "evidence_sources", "reference_urls", "phase_scope"]:
+            record[col] = " | ".join(sorted(set().union(*( _tokens(v) for v in group[col]))))
+        for col in ["approved", "immunotherapy", "anti_neoplastic"]:
+            known = group[col].dropna().unique()
+            record[col] = bool(known[0]) if len(known) == 1 else pd.NA
+        record["metadata_conflict"] = any(group[c].dropna().nunique() > 1 for c in ["approved", "clinical_phase"])
+        record["clinical_phase"] = group.clinical_phase.max() if group.clinical_phase.dropna().nunique() <= 1 else np.nan
+        dgidb = group[group.source == "DGIdb"].interaction_score
+        record["interaction_score"] = dgidb.max()
+        record["n_publications"] = len(_tokens(record["publication_ids"])) if record["publication_ids"] else group.n_publications.max()
+        record["identity_basis"] = "database_id" if identity.startswith("id:") else "name_only_requires_review"
+        record["record_count"] = len(group)
+        records.append(record)
+    result = pd.DataFrame(records)
+    for col in ["approved", "immunotherapy", "anti_neoplastic"]:
+        result[col] = result[col].astype("boolean")
+    result["hub_score"] = result.gene.map(hub_score_map).fillna(0).clip(0, 1)
+    def norm(series):
+        series = pd.to_numeric(series, errors="coerce")
+        # Zero evidence has zero contribution even if all observed scores agree.
+        return series.fillna(0).clip(lower=0) / max(series.max() if series.notna().any() else 0, 1e-9)
+    result["score_interaction"] = norm(result.interaction_score)
+    result["score_publications"] = norm(result.n_publications.clip(upper=30))
+    result["score_phase"] = result.clinical_phase.fillna(0).clip(0, 4) / 4
+    result["score_approved"] = result.approved.fillna(False).astype(float)
+    result["score_hub"] = result.hub_score
+    result["composite_score"] = sum(W[key] * result["score_" + key] for key in W)
+    result["score_scope"] = "Within this contrast and database snapshot; heuristic evidence ranking"
+    result["mechanism_review"] = "Original evidence and therapeutic direction require review"
+    return result.sort_values(["composite_score", "gene", "drug"], ascending=[False, True, True]).reset_index(drop=True)
 
-    dgi_df = (dgi_df
-              .sort_values("interaction_score", ascending=False)
-              .drop_duplicates(["gene", "drug"], keep="first")
-              .reset_index(drop=True))
 
-    def norm(s):
-        return (s - s.min()) / (s.max() - s.min() + 1e-9)
-
-    dgi_df["composite_score"] = (
-        W["interaction"]  * norm(dgi_df.interaction_score) +
-        W["publications"] * norm(dgi_df.n_publications.clip(0, 30)) +
-        W["phase"]        * (dgi_df.clinical_phase / 4) +
-        W["approved"]     * dgi_df.approved.astype(float) +
-        W["hub"]          * norm(dgi_df.gene.map(hub_score_map).fillna(0)) * 0.10
-        # dgi_df.gene.isin(surv_genes).astype(float) 
-    ).clip(0, 1).round(4)
-
-    dgi_df = dgi_df.sort_values("composite_score", ascending=False).reset_index(drop=True)
-
-    print(f"Edges (deduplicated): {len(dgi_df)}")
-    print(f"Unique genes        : {dgi_df.gene.nunique()}")
-    print(f"Unique drugs        : {dgi_df.drug.nunique()}")
-    print(f"Approved drugs      : {dgi_df.approved.sum()}")
-    return dgi_df
+def score_weight_sensitivity(all_edges, hub_score_map, baseline_weights, alternatives=None):
+    """Compare edge ranks under explicitly documented heuristic weights."""
+    scenarios = {"baseline": baseline_weights, **(alternatives or {
+        "less_hub": dict(interaction=0.75, publications=0, phase=0, approved=0.15, hub=0.10),
+        "more_hub": dict(interaction=0.55, publications=0, phase=0, approved=0.15, hub=0.30)})}
+    rows = []
+    for scenario, weights in scenarios.items():
+        frame = build_dgi_dataframe(all_edges, hub_score_map, weights)
+        for rank, record in enumerate(frame.to_dict("records"), 1):
+            rows.append({"scenario": scenario, "gene": record["gene"], "drug": record["drug"],
+                         "drug_id": record["drug_id"], "rank": rank, "score": record["composite_score"]})
+    return pd.DataFrame(rows, columns=["scenario", "gene", "drug", "drug_id", "rank", "score"])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 def build_gnn_edge_list(dgi_df, hub_score_map, tables_dir):
+    """Preserve biological/provenance columns; encode multi-valued evidence.
+
+    Missing numeric metadata is zero encoded only in this model input, with
+    accompanying missingness flags. It remains missing in the evidence table.
     """
-    Add one-hot GNN feature columns and export dgi_edges_gnn.csv.
-
-    Adds:
-      - hub_score, survival_target
-      - source_DGIdb, source_ChEMBL, source_OpenTargets  (one-hot)
-      - type_inhibitor, type_agonist, … (one-hot by interaction_type)
-
-    Parameters
-    ----------
-    dgi_df : pd.DataFrame
-        Output of build_dgi_dataframe().
-    hub_score_map : dict
-    surv_genes : set
-    tables_dir : Path
-
-    Returns
-    -------
-    gnn_df : pd.DataFrame
-        GNN-ready edge dataframe (also saved to disk).
-    """
-    gnn_df = dgi_df.copy()
-    gnn_df["hub_score"]       = gnn_df.gene.map(hub_score_map).fillna(0)
-    # gnn_df["survival_target"] = gnn_df.gene.isin(surv_genes).astype(int)
-
-    for src in ["DGIdb", "ChEMBL", "OpenTargets"]:
-        gnn_df[f"source_{src}"] = (gnn_df.source == src).astype(int)
-    for it in ["inhibitor", "agonist", "antagonist", "antibody", "binder", "activator"]:
-        gnn_df[f"type_{it}"] = (gnn_df.interaction_type.str.lower() == it).astype(int)
-
-    gnn_cols = (
-        ["gene", "drug", "composite_score", "approved", "immunotherapy",
-         "anti_neoplastic", "clinical_phase", "interaction_score", "n_publications"] +
-        [f"source_{s}" for s in ["DGIdb", "ChEMBL", "OpenTargets"]] +
-        [f"type_{t}" for t in ["inhibitor", "agonist", "antagonist",
-                                "antibody", "binder", "activator"]] +
-        ["hub_score", "interaction_type", "directionality", "source"]
-    )
-    gnn_df[[c for c in gnn_cols if c in gnn_df.columns]].to_csv(
-        tables_dir / "dgi_edges_gnn.csv", index=False)
-
-    print(f"Saved: dgi_edges_gnn.csv")
-    print(f"  Edges  : {len(gnn_df)}")
-    print(f"  Genes  : {gnn_df.gene.nunique()}")
-    print(f"  Drugs  : {gnn_df.drug.nunique()}")
-    print(f"  → Ready for notebook P4 (GNN)")
-    return gnn_df
+    gnn = dgi_df.copy()
+    gnn["hub_score"] = gnn.gene.map(hub_score_map).fillna(0)
+    for source in ["DGIdb", "ChEMBL", "OpenTargets"]:
+        gnn["source_" + source] = gnn.source.map(lambda v: int(source in _tokens(v)))
+    for kind in ["inhibitor", "agonist", "antagonist", "antibody", "binder", "activator"]:
+        gnn["type_" + kind] = gnn.interaction_type.map(lambda v: int(kind in {t.lower() for t in _tokens(v)}))
+    for col in ["approved", "immunotherapy", "anti_neoplastic", "clinical_phase", "interaction_score", "n_publications"]:
+        gnn[col + "_missing"] = gnn[col].isna().astype(int)
+        gnn[col] = gnn[col].astype("Float64").fillna(0).astype(float)
+    tables_dir = Path(tables_dir)
+    tables_dir.mkdir(parents=True, exist_ok=True)
+    gnn.to_csv(tables_dir / "dgi_edges_gnn.csv", index=False)
+    return gnn
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 _TYPE_COLS = [
     "#534AB7","#1D9E75","#D85A30","#BA7517","#888780","#B5D4F4",
     "#E07B54","#2E86AB","#A23B72","#F18F01","#C73E1D","#3B1F2B",
@@ -328,9 +243,13 @@ def plot_dgi_dashboard(dgi_df: pd.DataFrame, figures_dir,
     """
     5-panel summary dashboard.  Saves combined + 5 individual panels.
  
-    clinical_phase 0=Preclinical, 1=Phase1, 2=Phase2, 3=Phase3, 4=Approved.
+    Reported trial phases and approval are separate fields; missing phase
+    is displayed as Unknown. Approval is not specific to HCC.
     """
     figures_dir = _as_path(figures_dir)
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    if dgi_df.empty:
+        raise ValueError("No interaction evidence to plot")
  
     # ── Pre-compute gene counts ───────────────────────────────────────────────
     gc_full = dgi_df.groupby(["gene", "source"]).size().unstack(fill_value=0)
@@ -426,16 +345,18 @@ def plot_dgi_dashboard(dgi_df: pd.DataFrame, figures_dir,
     # ══════════════════════════════════════════════════════════════════════════
     ax3 = fig.add_subplot(gs[1, 0])
  
-    appr = (dgi_df.groupby(["source", "approved"]).size().unstack(fill_value=0)
-            .rename(columns={True: "Approved", False: "Not approved",
-                              1:   "Approved", 0:    "Not approved"}))
-    for col in ["Approved", "Not approved"]:
+    approval_status = dgi_df.approved.map(
+        lambda v: "Unknown" if pd.isna(v) else "Approved" if v else "Not approved")
+    appr = (dgi_df.assign(approval_status=approval_status)
+            .groupby(["source", "approval_status"]).size().unstack(fill_value=0))
+    for col in ["Approved", "Not approved", "Unknown"]:
         if col not in appr.columns:
             appr[col] = 0
     appr     = appr[appr.sum(axis=1) > 0].copy()
     tot_src  = appr.sum(axis=1)
     pct_a    = appr["Approved"]     / tot_src * 100
     pct_na   = appr["Not approved"] / tot_src * 100
+    pct_unknown = appr["Unknown"] / tot_src * 100
     y_pos    = np.arange(len(appr))
     bh       = 0.45
  
@@ -443,6 +364,8 @@ def plot_dgi_dashboard(dgi_df: pd.DataFrame, figures_dir,
                        color="#1D9E75", alpha=0.88, label="Approved")
     bars_na = ax3.barh(y_pos, pct_na.values, height=bh, left=pct_a.values,
                        color="#D3D1C7", alpha=0.88, label="Not approved")
+    ax3.barh(y_pos, pct_unknown.values, height=bh, left=(pct_a + pct_na).values,
+             color="#888888", alpha=0.88, label="Unknown")
  
     # Segment labels
     for i in range(len(appr)):
@@ -478,20 +401,20 @@ def plot_dgi_dashboard(dgi_df: pd.DataFrame, figures_dir,
  
     # ══════════════════════════════════════════════════════════════════════════
     # Panel D — clinical phase (log scale)
-    # FIX: phase 4 labelled as "Approved\n(phase 4)" so encoding is clear
+    # Do not infer phase from approval. Preserve an explicit Unknown category.
     # ══════════════════════════════════════════════════════════════════════════
     ax4 = fig.add_subplot(gs[1, 1])
  
     pm = {
-        0: "Preclinical\n(phase 0)",
+        0: "Reported 0",
         1: "Phase 1",
         2: "Phase 2",
         3: "Phase 3",
-        4: "Approved\n(phase 4)",
+        4: "Reported 4",
     }
-    po = list(pm.values())
-    pv = [dgi_df["clinical_phase"].map(pm).value_counts().get(p, 0) for p in po]
-    bars = ax4.bar(po, pv, color=[PHASE_COL[k] for k in range(5)],
+    po = [*pm.values(), "Unknown"]
+    pv = [dgi_df["clinical_phase"].map(pm).value_counts().get(p, 0) for p in po[:-1]] + [int(dgi_df["clinical_phase"].isna().sum())]
+    bars = ax4.bar(po, pv, color=[*[PHASE_COL[k] for k in range(5)], "#888888"],
                    alpha=0.88, edgecolor="white", zorder=3)
  
     ax4.set_yscale("symlog", linthresh=10)
@@ -552,7 +475,7 @@ def plot_dgi_dashboard(dgi_df: pd.DataFrame, figures_dir,
  
     # ── Suptitle ─────────────────────────────────────────────────────────────
     fig.suptitle(
-        f"Drug–Gene Interaction Analysis — HCC Hub Genes\n"
+        f"Drug–Gene Interaction Evidence — HCC Candidates\n"
         f"{gc_full.shape[0]} genes · {dgi_df['drug'].nunique():,} unique drugs "
         f"· {int(dgi_df['approved'].sum()):,} approved",
         fontsize=13, fontweight="bold", y=1.01,

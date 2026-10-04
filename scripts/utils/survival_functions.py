@@ -1,15 +1,15 @@
 """
 survival_functions.py
 =====================
-All logic for notebook P2 · Survival Filter.
+Optional supporting bulk-tumour survival evidence for notebook P2.
 
 Functions
 ---------
 load_gene_list      — load DEA + hub gene lists
 fetch_tcga_lihc     — download TCGA-LIHC clinical + expression from UCSC Xena
-simulate_tcga       — realistic simulated TCGA fallback (no internet needed)
+simulate_tcga       — explicit demonstration/test data only
 run_survival        — Kaplan-Meier + Cox regression per gene
-filter_survivors    — apply significance thresholds
+filter_survivors    — flag Cox FDR support with PH diagnostics
 export_survival     — save results CSVs
 """
 
@@ -19,9 +19,10 @@ import requests
 import numpy as np
 import pandas as pd
 from lifelines import CoxPHFitter
-from lifelines.statistics import logrank_test
+from lifelines.statistics import logrank_test, proportional_hazard_test
+from statsmodels.stats.multitest import multipletests
 
-warnings.filterwarnings("ignore")
+
 
 # TCGA-LIHC download URLs (UCSC Xena public hub)
 _CLINICAL_URL = (
@@ -78,245 +79,199 @@ def load_gene_list(dea_path, hub_path=None,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def fetch_tcga_lihc():
-    """
-    Download TCGA-LIHC clinical (overall survival) and RNA-seq expression
-    data from the UCSC Xena public hub.
+def _prepare_tcga(clinical, expression):
+    """Validate OS endpoints and use one primary-tumour expression row per patient.
 
-    Returns
-    -------
-    merged : pd.DataFrame or None
-        Wide-format dataframe: patient_id, OS_time, OS_event, <gene cols>.
-        None if the download failed.
-    is_simulated : bool
-        True if the download failed (caller should use simulate_tcga).
+    Expression is samples x genes. Multiple primary aliquots are averaged.
+    Endpoint conflicts within a patient fail validation rather than selecting
+    an arbitrary clinical record. OS_time from these Xena fields is in days.
     """
-    print("Downloading TCGA-LIHC from UCSC Xena...")
+    id_col = next((c for c in ["sampleID", "patient_id", "sample"] if c in clinical), None)
+    if id_col is None:
+        raise ValueError("Clinical sample/patient identifier is missing")
+    def endpoint(candidates, label):
+        present = [c for c in candidates if c in clinical]
+        if not present:
+            raise ValueError(f"Missing validated {label} endpoint")
+        result = pd.to_numeric(clinical[present[0]], errors="coerce")
+        for col in present[1:]:
+            other = pd.to_numeric(clinical[col], errors="coerce")
+            overlap = result.notna() & other.notna()
+            if not np.allclose(result[overlap], other[overlap]):
+                raise ValueError(f"Conflicting aliases for {label}")
+            result = result.fillna(other)
+        return result
+    c = clinical.copy()
+    c["OS_time"] = endpoint(["OS_time", "OS.time", "_OS"], "OS time")
+    c["OS_event"] = endpoint(["OS_event", "OS", "_OS_IND"], "OS event")
+    identifiers = c[id_col].astype(str)
+    is_sample = identifiers.str.len() >= 15
+    c = c[~is_sample | (identifiers.str[13:15] == "01")].copy()
+    c["patient_id"] = c[id_col].astype(str).str[:12]
+    c = c.dropna(subset=["OS_time", "OS_event"])
+    if not c.OS_event.isin([0, 1]).all() or (c.OS_time <= 0).any():
+        raise ValueError("OS events must be 0/1 and OS times positive")
+    conflicts = c.groupby("patient_id")[["OS_time", "OS_event"]].nunique()
+    if (conflicts > 1).any().any():
+        raise ValueError("Conflicting survival endpoints within a patient")
+    c = c.sort_values(id_col).drop_duplicates("patient_id")
+    e = expression.copy()
+    e.index = e.index.astype(str)
+    e = e[e.index.str[13:15] == "01"].apply(pd.to_numeric, errors="coerce")
+    if not e.columns.is_unique:
+        raise ValueError("Duplicate expression gene identifiers")
+    e.index = e.index.str[:12]
+    e = e.groupby(level=0).mean()
+    # Keep other clinical fields for explicitly selected covariate adjustment.
+    overlap = set(c.columns) & set(e.columns)
+    if overlap:
+        raise ValueError(f"Gene/clinical column collision: {sorted(overlap)}")
+    merged = c.merge(e, left_on="patient_id", right_index=True, validate="one_to_one")
+    if len(merged) < 20:
+        raise ValueError("Fewer than 20 patients with validated endpoints and primary tumour RNA")
+    merged.attrs.update(time_unit="days", source="TCGA-LIHC UCSC Xena",
+                        expression_aggregation="mean primary-tumour aliquots per patient")
+    return merged
+
+
+def fetch_tcga_lihc():
+    """Return real validated data or (None, False). Never simulate on failure."""
     try:
-        r = requests.get(_CLINICAL_URL, timeout=30)
+        r = requests.get(_CLINICAL_URL, timeout=60)
         r.raise_for_status()
         clinical = pd.read_csv(io.StringIO(r.text), sep="\t", low_memory=False)
-        clinical = clinical.rename(columns={
-            "sampleID" : "patient_id",
-            "OS.time"  : "OS_time",
-            "OS"       : "OS_event",
-            "_OS_IND"  : "OS_event",
-            "_OS"      : "OS_time",
-        })
-        if "patient_id" in clinical.columns:
-            # Keep only primary tumor samples (barcode position 13–14 == "01")
-            clinical = clinical[clinical.patient_id.str[13:15] == "01"].copy()
-        clinical = clinical[["patient_id", "OS_time", "OS_event"]].dropna()
-        clinical[["OS_time", "OS_event"]] = clinical[
-            ["OS_time", "OS_event"]].apply(pd.to_numeric, errors="coerce")
-        clinical = clinical.dropna()
-        print(f"  Clinical: {len(clinical)} patients")
-
-        r2 = requests.get(_EXPR_URL, timeout=120)
-        r2.raise_for_status()
-        expr = (pd.read_csv(io.StringIO(r2.text), sep="\t",
-                            index_col=0, low_memory=False)
-                  .T.reset_index()
-                  .rename(columns={"index": "patient_id"}))
-        expr["patient_id"]     = expr.patient_id.str[:15]
-        clinical["patient_id"] = clinical.patient_id.str[:15]
-        merged = clinical.merge(expr, on="patient_id", how="inner")
-        print(f"  Merged  : {len(merged)} patients with expression data")
+        r = requests.get(_EXPR_URL, timeout=120)
+        r.raise_for_status()
+        expression = pd.read_csv(io.StringIO(r.text), sep="\t", index_col=0).T
+        merged = _prepare_tcga(clinical, expression)
+        print(f"Validated TCGA-LIHC: {len(merged)} unique patients")
         return merged, False
-
-    except Exception as e:
-        print(f"  ✗ Download failed: {e}")
-        print("  → Will use simulated data")
-        return None, True
+    except Exception as exc:
+        print(f"Survival evidence unavailable: {exc}")
+        return None, False
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 def simulate_tcga(gene_list, n=374, random_seed=42):
+    """Explicit null simulation for demonstrations only; no gene-specific effects.
+
+    Marked simulated so scientific run_survival rejects this object.
+    This function never acts as a download fallback.
     """
-    Generate realistic TCGA-LIHC-like survival + expression data.
-    Used automatically when the real download fails.
-
-    Known protective genes (APOE, ALB) are given better simulated survival.
-    Known risk genes (XIST, FTL) are given worse simulated survival.
-
-    Parameters
-    ----------
-    gene_list : list
-        Gene symbols to include as expression columns.
-    n : int
-        Number of simulated patients.
-    random_seed : int
-
-    Returns
-    -------
-    df : pd.DataFrame
-        Columns: patient_id, OS_time, OS_event, <gene_list cols>.
-    """
-    np.random.seed(random_seed)
-    os_time  = np.random.exponential(800, n).clip(30, 3000)
-    os_event = np.random.binomial(1, 0.55, n)
-    expr = {g: np.random.randn(n) for g in gene_list}
-
-    for g in ["APOE", "ALB"]:
-        if g in expr:
-            hi = expr[g] > 0
-            os_time[hi]  *= np.random.uniform(1.1, 1.4, hi.sum())
-            os_event[hi]  = np.random.binomial(1, 0.40, hi.sum())
-
-    for g in ["XIST", "FTL"]:
-        if g in expr:
-            hi = expr[g] > 0
-            os_time[hi]  *= np.random.uniform(0.6, 0.85, hi.sum())
-            os_event[hi]  = np.random.binomial(1, 0.70, hi.sum())
-
-    return pd.DataFrame({
-        "patient_id": [f"P{i:04d}" for i in range(n)],
-        "OS_time"   : os_time.clip(30, 3000),
-        "OS_event"  : os_event.astype(int),
-        **expr,
+    rng = np.random.default_rng(random_seed)
+    frame = pd.DataFrame({
+        "patient_id": [f"DEMO{i:04d}" for i in range(n)],
+        "OS_time": rng.exponential(800, n) + 1,
+        "OS_event": rng.binomial(1, 0.55, n),
+        **{g: rng.normal(size=n) for g in gene_list},
     })
+    frame.attrs["is_simulated"] = True
+    return frame
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-def run_survival(gene_list, merged):
+def _adjust_p(values):
+    values = pd.to_numeric(values, errors="coerce")
+    result = pd.Series(np.nan, index=values.index)
+    valid = values.notna()
+    if valid.any():
+        result.loc[valid] = multipletests(values[valid], method="fdr_bh")[1]
+    return result
+
+
+def run_survival(gene_list, merged, covariates=(), min_patients=20, min_events=10):
+    """Continuous Cox HR per expression SD; KM is descriptive supporting evidence.
+
+    Covariates must be explicitly supplied validated clinical column names.
+    Categorical covariates are dummy encoded. Failed/untestable genes remain
+    in the ledger. BH correction is across successfully tested genes within
+    this contrast, not across all possible project hypotheses.
     """
-    Run Kaplan-Meier log-rank test + Cox regression for every gene.
-
-    Patients are split at the gene's median expression level.
-    Cox model uses standardised expression to get interpretable HR.
-
-    Parameters
-    ----------
-    gene_list : list
-        Genes to test (must be columns in merged).
-    merged : pd.DataFrame
-        TCGA-LIHC or simulated data (patient_id, OS_time, OS_event, genes).
-
-    Returns
-    -------
-    results : pd.DataFrame
-        Columns: gene, logrank_p, cox_p, HR, HR_CI_low, HR_CI_high.
-    """
-    avail   = [g for g in gene_list if g in merged.columns]
-    results = []
-    print(f"Testing {len(avail)} genes...")
-
-    for i, gene in enumerate(avail):
-        gene_data = merged[["OS_time","OS_event",gene]].dropna().copy()
-        gene_data.columns = ["T","E","expr"]
-        if len(gene_data) < 20: continue
-        # ── Dichotomise at median ─────────────────────────────────────────────────
-        median_expr = gene_data["expr"].median()
-        gene_data["group"] = np.where(gene_data["expr"] >= median_expr,
-                                    "High", "Low")
-        high = gene_data[gene_data["group"] == "High"]
-        low  = gene_data[gene_data["group"] == "Low"]
-    
-        if len(high) < 5 or len(low) < 5:
+    if merged is None:
+        raise ValueError("Real survival data are unavailable")
+    if merged.attrs.get("is_simulated"):
+        raise ValueError("Simulated data cannot enter scientific survival prioritisation")
+    if merged.patient_id.duplicated().any():
+        raise ValueError("Survival input must contain one row per patient")
+    if not merged.OS_event.dropna().isin([0, 1]).all() or (merged.OS_time.dropna() <= 0).any():
+        raise ValueError("Invalid survival endpoints")
+    for col in covariates:
+        if col in {"patient_id", "OS_time", "OS_event"} or col in gene_list:
+            raise ValueError(f"Invalid clinical covariate: {col}")
+        if col not in merged:
+            raise KeyError(f"Missing requested covariate: {col}")
+    rows = []
+    for gene in dict.fromkeys(gene_list):
+        row = dict(gene=gene, logrank_p=np.nan, cox_p=np.nan, HR=np.nan,
+                   HR_CI_low=np.nan, HR_CI_high=np.nan, ph_p=np.nan,
+                   n_patients=0, n_events=0, status="not_tested", reason="",
+                   covariates=" | ".join(covariates), model="adjusted" if covariates else "unadjusted")
+        if gene not in merged:
+            row["reason"] = "No expression measurement"
+            rows.append(row)
             continue
-
-        gene_data["group"] = np.where(gene_data.expr >= gene_data.expr.median(), "High", "Low")
-        hi, lo = gene_data[gene_data.group=="High"], gene_data[gene_data.group=="Low"]
-        if len(hi) < 5 or len(lo) < 5: continue
-        # ── Log-rank test ─────────────────────────────────────────────────────────
-        lr = logrank_test(
-            high["T"], low["T"],
-            event_observed_A=high["E"],
-            event_observed_B=low["E"],
-        )
-        # ── Cox proportional hazards ──────────────────────────────────────────────
+        gd = merged[["OS_time", "OS_event", gene, *covariates]].replace([np.inf, -np.inf], np.nan).dropna().copy()
+        gd = gd.rename(columns={"OS_time": "T", "OS_event": "E", gene: "expr"})
+        row.update(n_patients=len(gd), n_events=int(gd.E.sum()))
+        if len(gd) < min_patients or gd.E.sum() < min_events or gd.expr.std() == 0:
+            row["reason"] = "Too few patients/events or constant expression"
+            rows.append(row)
+            continue
+        high, low = gd[gd.expr >= gd.expr.median()], gd[gd.expr < gd.expr.median()]
+        if min(len(high), len(low)) >= 5:
+            row["logrank_p"] = logrank_test(high["T"], low["T"],
+                event_observed_A=high.E, event_observed_B=low.E).p_value
+        cd = pd.get_dummies(gd, columns=[c for c in covariates if not pd.api.types.is_numeric_dtype(gd[c])], drop_first=True, dtype=float)
+        cd["expr"] = (cd.expr - cd.expr.mean()) / cd.expr.std()
+        predictors = [c for c in cd if c not in ["T", "E"]]
+        cd = cd.drop(columns=[c for c in predictors if c != "expr" and cd[c].nunique() <= 1])
+        if gd.E.sum() < max(min_events, 10 * (len(cd.columns) - 2)):
+            row["reason"] = "Insufficient events for requested model complexity"
+            rows.append(row)
+            continue
         try:
-            cd = gene_data[["T","E","expr"]].copy()
-            cd["expr"] = (cd.expr - cd.expr.mean()) / (cd.expr.std() + 1e-9)
-            cph = CoxPHFitter(penalizer=0.1)
-            cph.fit(cd, duration_col="T", event_col="E", show_progress=False)
-            hr   = float(np.exp(cph.params_["expr"]))
-            ci_l = float(np.exp(cph.confidence_intervals_.loc["expr","95% lower-bound"]))
-            ci_h = float(np.exp(cph.confidence_intervals_.loc["expr","95% upper-bound"]))
-            cox_p = float(cph.summary.loc["expr","p"])
-        except:
-            hr = ci_l = ci_h = cox_p = np.nan
-        results.append({"gene":gene,"logrank_p":lr.p_value,"cox_p":cox_p,
-                        "HR":hr,"HR_CI_low":ci_l,"HR_CI_high":ci_h})
-        if (i+1) % 50 == 0:
-            print(f"  [{i+1}/{len(avail)}]")
+            cph = CoxPHFitter(penalizer=0.0)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                cph.fit(cd, duration_col="T", event_col="E")
+            if any("Convergence" in w.category.__name__ for w in caught):
+                raise RuntimeError("Cox convergence warning; model needs review: " +
+                                   " | ".join(str(w.message) for w in caught))
+            ci = cph.confidence_intervals_.loc["expr"]
+            row.update(HR=float(np.exp(cph.params_["expr"])),
+                       HR_CI_low=float(np.exp(ci.iloc[0])), HR_CI_high=float(np.exp(ci.iloc[1])),
+                       cox_p=float(cph.summary.loc["expr", "p"]), status="completed")
+            ph = proportional_hazard_test(cph, cd, time_transform="rank")
+            row["ph_p"] = float(ph.summary.loc["expr", "p"])
+            row["ph_min_p"] = float(ph.summary.p.min())
+        except Exception as exc:
+            row.update(status="failed", reason=str(exc))
+        rows.append(row)
+    columns = ["gene", "logrank_p", "cox_p", "HR", "HR_CI_low", "HR_CI_high", "ph_p", "ph_min_p",
+               "n_patients", "n_events", "status", "reason", "covariates", "model"]
+    result = pd.DataFrame(rows, columns=columns)
+    for field in ["cox_p", "logrank_p"]:
+        result[field + "_adj"] = _adjust_p(result[field])
+    result["ph_warning"] = result.ph_min_p < 0.05
+    return result
 
-    return pd.DataFrame(results)
 
+def filter_survivors(surv_df, sig, km_p=0.05, cox_p=0.05,
+                     hr_min=0.8, hr_max=1.2):
+    """Cox BH-FDR support only; KM and arbitrary HR cutoffs are not gates.
 
-# ─────────────────────────────────────────────────────────────────────────────
-def filter_survivors(surv_df, sig,
-                     km_p=0.05, cox_p=0.05, hr_min=0.8, hr_max=1.2):
+    Legacy threshold arguments remain accepted for existing callers. PH
+    diagnostics are screening flags; models with missing or flagged checks
+    are not labelled supported until separately reviewed.
     """
-    Merge DEA stats into survival results and apply significance filters.
-
-    A gene passes if:
-      logrank_p < km_p  AND  cox_p < cox_p_thresh  AND
-      (HR < hr_min  OR  HR > hr_max)
-
-    Parameters
-    ----------
-    surv_df : pd.DataFrame
-        Output of run_survival().
-    sig : pd.DataFrame
-        Significant DEGs (gene, log2FC, adj_pvalue, regulation).
-    km_p, cox_p : float
-        P-value thresholds.
-    hr_min, hr_max : float
-        HR range to exclude (no meaningful prognostic effect).
-
-    Returns
-    -------
-    surv_df : pd.DataFrame
-        Full results with DEA columns merged in.
-    filtered : pd.DataFrame
-        Genes passing all filters, with prognosis column (protective/risk).
-    """
-    surv_df = (surv_df
-               .merge(sig[["gene", "log2FC", "adj_pvalue", "regulation"]],
-                      on="gene", how="left")
-               .sort_values("logrank_p")
-               .reset_index(drop=True))
-
-    filtered = surv_df[
-        (surv_df.logrank_p < km_p) &
-        (surv_df.cox_p     < cox_p) &
-        ((surv_df.HR < hr_min) | (surv_df.HR > hr_max))
-    ].copy()
-    filtered["prognosis"] = filtered.HR.apply(
-        lambda h: "protective" if pd.notna(h) and h < 1 else "risk")
-
-    print(f"Genes analysed         : {len(surv_df)}")
-    print(f"KM significant         : {(surv_df.logrank_p<km_p).sum()}")
-    print(f"Passing all filters    : {len(filtered)}")
-    print(f"  Protective (HR<1)    : {(filtered.HR<1).sum()}")
-    print(f"  Risk (HR>1)          : {(filtered.HR>1).sum()}")
-    return surv_df, filtered
+    merged = surv_df.merge(sig, on="gene", how="left").sort_values("cox_p_adj")
+    supported = merged[(merged.status == "completed") & (merged.cox_p_adj < cox_p)
+                       & merged.ph_min_p.notna() & ~merged.ph_warning].copy()
+    supported["prognosis"] = np.where(supported.HR < 1, "lower_hazard_association", "higher_hazard_association")
+    return merged.reset_index(drop=True), supported.reset_index(drop=True)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 def export_survival(surv_df, filtered, tables_dir):
-    """
-    Save survival_results.csv and survival_filtered_genes.csv.
-
-    Parameters
-    ----------
-    surv_df : pd.DataFrame
-        Full per-gene survival stats.
-    filtered : pd.DataFrame
-        Genes passing all significance filters.
-    tables_dir : Path
-        Output directory.
-    """
-    surv_df["prognosis"] = surv_df.HR.apply(
-        lambda h: "protective" if pd.notna(h) and h < 1
-                  else "risk" if pd.notna(h) else "")
+    from pathlib import Path
+    tables_dir = Path(tables_dir)
+    tables_dir.mkdir(parents=True, exist_ok=True)
     surv_df.to_csv(tables_dir / "survival_results.csv", index=False)
-
-    filt_cols = ["gene", "logrank_p", "cox_p", "HR", "HR_CI_low", "HR_CI_high",
-                 "log2FC", "regulation", "prognosis"]
-    filtered[[c for c in filt_cols if c in filtered.columns]].to_csv(
-        tables_dir / "survival_filtered_genes.csv", index=False)
-
-    print(f"Saved: survival_results.csv          ({len(surv_df)} genes)")
-    print(f"Saved: survival_filtered_genes.csv   ({len(filtered)} genes  →  GNN input)")
+    filtered.to_csv(tables_dir / "survival_supported_genes.csv", index=False)

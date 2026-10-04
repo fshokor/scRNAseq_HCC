@@ -9,7 +9,7 @@ safe_request          — retry wrapper with rate-limit handling
 query_dgidb           — DGIdb GraphQL API
 query_chembl          — ChEMBL REST API (target search + mechanism)
 query_opentargets     — OpenTargets GraphQL API
-get_curated_fallback  — literature-curated dataset (used when APIs blocked)
+get_curated_fallback  — retired unverified fallback; raises an error
 """
 
 import time
@@ -111,10 +111,12 @@ def query_dgidb(genes: list, batch_size: int = 10) -> list:
             json={"query": _DGIDB_QUERY, "variables": {"genes": batch}},
         )
         if r is None:
-            print(f"    DGIdb batch {i // batch_size + 1}: no response")
-            continue
+            raise RuntimeError(f"DGIdb batch {i // batch_size + 1} failed; partial results discarded")
 
-        nodes = r.json().get("data", {}).get("genes", {}).get("nodes", [])
+        payload = r.json()
+        if payload.get("errors") or not payload.get("data", {}).get("genes"):
+            raise RuntimeError(f"DGIdb GraphQL error: {payload.get('errors', 'missing gene data')}")
+        nodes = payload["data"]["genes"].get("nodes", [])
         for node in nodes:
             gene = node["name"]
             for ix in node.get("interactions", []):
@@ -127,14 +129,18 @@ def query_dgidb(genes: list, batch_size: int = 10) -> list:
                     "drug"             : drug["name"],
                     "drug_id"          : drug.get("conceptId", ""),
                     "source"           : "DGIdb",
-                    "interaction_type" : itype[0]["type"] if itype else "unknown",
-                    "directionality"   : itype[0]["directionality"] if itype else "unknown",
-                    "approved"         : bool(drug.get("approved", False)),
-                    "immunotherapy"    : bool(drug.get("immunotherapy", False)),
-                    "anti_neoplastic"  : bool(drug.get("antiNeoplastic", False)),
-                    "interaction_score": float(ix.get("interactionScore") or 0),
+                    "interaction_type" : " | ".join(sorted({t.get("type") or "unknown" for t in itype})) or "unknown",
+                    "directionality"   : " | ".join(sorted({t.get("directionality") or "unknown" for t in itype})) or "unknown",
+                    "approved"         : drug.get("approved"),
+                    "immunotherapy"    : drug.get("immunotherapy"),
+                    "anti_neoplastic"  : drug.get("antiNeoplastic"),
+                    "publication_ids"  : " | ".join(sorted({str(p["pmid"]) for p in ix.get("publications", []) if p.get("pmid")})),
+                    "evidence_sources" : " | ".join(sorted({s["fullName"] for s in ix.get("sources", []) if s.get("fullName")})),
+                    "interaction_score": float(ix["interactionScore"]) if ix.get("interactionScore") is not None else None,
                     "n_publications"   : len(ix.get("publications", [])),
-                    "clinical_phase"   : 4 if drug.get("approved") else 0,
+                    "clinical_phase"   : None,  # DGIdb does not supply clinical trial phase.
+                    "phase_scope"      : "not_available",
+                    "mechanism_review" : "Requires review of original interaction evidence",
                 })
         time.sleep(0.5)
 
@@ -200,11 +206,12 @@ def query_chembl(genes: list) -> list:
                 "source"           : "ChEMBL",
                 "interaction_type" : moa,
                 "directionality"   : ("inhibitory" if "inhibit" in moa.lower()
-                                      else "activating"),
+                                      else "activating" if "agonist" in moa.lower() or "activat" in moa.lower() else "unknown"),
                 "approved"         : phase == 4,
                 "immunotherapy"    : False,
                 "anti_neoplastic"  : False,
-                "interaction_score": 5.0 + phase,
+                "interaction_score": None,
+                "phase_scope"      : "drug_global_not_HCC_specific",
                 "n_publications"   : 0,
                 "clinical_phase"   : phase,
             })
@@ -290,11 +297,13 @@ def query_opentargets(genes: list) -> list:
                 "source"           : "OpenTargets",
                 "interaction_type" : moa,
                 "directionality"   : ("inhibitory" if "inhibit" in moa.lower()
-                                      else "activating"),
+                                      else "activating" if "agonist" in moa.lower() or "activat" in moa.lower() else "unknown"),
                 "approved"         : bool(drug.get("isApproved", False)),
                 "immunotherapy"    : False,
                 "anti_neoplastic"  : False,
-                "interaction_score": 5.0 + phase,
+                "interaction_score": None,
+                "phase_scope"      : "drug_global_not_HCC_specific",
+                "reference_urls"   : " | ".join(sorted({url for ref in row.get("references", []) for url in ref.get("urls", [])})),
                 "n_publications"   : len(row.get("references", [])),
                 "clinical_phase"   : phase,
             })
@@ -308,81 +317,6 @@ def query_opentargets(genes: list) -> list:
 # Curated fallback
 # ─────────────────────────────────────────────────────────────────────────────
 
-_CURATED = [
-    # (gene, drug, source, interaction_type, directionality,
-    #  approved, immunotherapy, anti_neoplastic, score, n_pubs, phase)
-    ("APOE","Fluvastatin","DGIdb","inhibitor","inhibitory",True,False,True,7.2,12,4),
-    ("APOE","Atorvastatin","DGIdb","inhibitor","inhibitory",True,False,True,6.8,18,4),
-    ("APOE","Simvastatin","ChEMBL","inhibitor","inhibitory",True,False,True,6.5,14,4),
-    ("APOE","Fenofibrate","OpenTargets","agonist","activating",True,False,False,6.2,7,4),
-    ("ALB","Gadobenate Dimeglumine","DGIdb","binder","activating",True,False,False,8.1,3,4),
-    ("ALB","Warfarin","DGIdb","binder","inhibitory",True,False,False,7.5,21,4),
-    ("ALB","Cisplatin","OpenTargets","binder","inhibitory",True,False,True,6.7,22,4),
-    ("SERPINA1","Igmesine","DGIdb","inhibitor","inhibitory",False,False,False,9.2,2,1),
-    ("SERPINA1","Alpha-1 Antitrypsin","DGIdb","activator","activating",True,False,False,8.8,33,4),
-    ("SERPINA1","Sivelestat","ChEMBL","inhibitor","inhibitory",True,False,False,7.4,8,3),
-    ("APOA2","PKR-A","DGIdb","agonist","activating",False,False,False,8.5,1,1),
-    ("APOA2","Fenofibrate","OpenTargets","agonist","activating",True,False,False,6.0,9,4),
-    ("FTL","Deferoxamine","DGIdb","inhibitor","inhibitory",True,False,False,7.8,15,4),
-    ("FTL","Deferasirox","ChEMBL","inhibitor","inhibitory",True,False,False,7.1,11,4),
-    ("FTL","Deferiprone","ChEMBL","inhibitor","inhibitory",True,False,False,6.8,10,4),
-    ("MMP9","Marimastat","DGIdb","inhibitor","inhibitory",False,False,True,8.3,14,2),
-    ("MMP9","Sorafenib","OpenTargets","inhibitor","inhibitory",True,False,True,7.0,24,4),
-    ("MMP9","Doxycycline","ChEMBL","inhibitor","inhibitory",True,False,False,6.4,9,4),
-    ("IL1B","Canakinumab","DGIdb","antibody","inhibitory",True,False,True,9.1,28,4),
-    ("IL1B","Anakinra","DGIdb","antagonist","inhibitory",True,False,False,8.7,22,4),
-    ("IL1B","Rilonacept","ChEMBL","antagonist","inhibitory",True,False,False,7.9,11,4),
-    ("NFKB1","Bortezomib","DGIdb","inhibitor","inhibitory",True,False,True,8.2,19,4),
-    ("NFKB1","Sulfasalazine","OpenTargets","inhibitor","inhibitory",True,False,False,6.8,12,4),
-    ("NFKB1","Curcumin","ChEMBL","inhibitor","inhibitory",False,False,False,6.1,31,2),
-    ("CCL2","Carlumab","DGIdb","antibody","inhibitory",False,False,True,8.4,6,2),
-    ("CCL2","Bindarit","ChEMBL","inhibitor","inhibitory",False,False,False,7.2,9,2),
-    ("IFNG","Emapalumab","DGIdb","antibody","inhibitory",True,True,False,8.9,7,4),
-    ("TYROBP","Sorafenib","OpenTargets","inhibitor","inhibitory",True,False,True,6.5,24,4),
-    ("TYROBP","Regorafenib","ChEMBL","inhibitor","inhibitory",True,False,True,6.8,16,4),
-    ("AIF1","Minocycline","ChEMBL","inhibitor","inhibitory",True,False,False,5.8,13,4),
-    ("S100A9","Tasquinimod","DGIdb","inhibitor","inhibitory",False,False,True,7.4,8,2),
-    ("CTSB","CA-074Me","ChEMBL","inhibitor","inhibitory",False,False,False,8.0,11,1),
-    ("SPP1","Alendronate","DGIdb","inhibitor","inhibitory",True,False,False,6.3,17,4),
-    ("CD68","Pexidartinib","OpenTargets","inhibitor","inhibitory",True,False,True,7.5,11,4),
-    ("GAPDH","Heptelidic acid","ChEMBL","inhibitor","inhibitory",False,False,False,6.0,5,1),
-    ("FCER1G","Omalizumab","DGIdb","antibody","inhibitory",True,False,False,6.9,14,4),
-    ("GRN","AL001","OpenTargets","activator","activating",False,False,False,5.8,3,2),
-]
-
-
 def get_curated_fallback(genes: list) -> list:
-    """
-    Return curated drug-gene interactions for genes in `genes`.
-    Used automatically when all three live APIs are inaccessible.
-
-    Parameters
-    ----------
-    genes : list
-        Gene symbols to filter for.
-
-    Returns
-    -------
-    list of dict
-        Interaction edges for matching genes.
-    """
-    gene_set = set(g.upper() for g in genes)
-    edges = []
-    for r in _CURATED:
-        if r[0].upper() not in gene_set:
-            continue
-        edges.append({
-            "gene"             : r[0],
-            "drug"             : r[1],
-            "drug_id"          : "",
-            "source"           : r[2],
-            "interaction_type" : r[3],
-            "directionality"   : r[4],
-            "approved"         : r[5],
-            "immunotherapy"    : r[6],
-            "anti_neoplastic"  : r[7],
-            "interaction_score": r[8],
-            "n_publications"   : r[9],
-            "clinical_phase"   : r[10],
-        })
-    return edges
+    """Retired: previous hardcoded records lacked verifiable citations."""
+    raise ValueError("Unverified fallback retired; use original database evidence or independently cited manual records")

@@ -63,9 +63,9 @@ def plot_ppi_network(
     fig.patch.set_facecolor("#fafafa")
 
     try:
-        pos = nx.kamada_kawai_layout(H, weight="weight")
+        pos = nx.kamada_kawai_layout(H, weight=None)
     except Exception:
-        pos = nx.spring_layout(H, seed=42, k=2.5 / np.sqrt(H.number_of_nodes()))
+        pos = nx.spring_layout(H, seed=42, k=2.5 / np.sqrt(max(H.number_of_nodes(), 1)))
 
     reg_map   = {n: G.nodes[n].get("regulation", "up") for n in H.nodes()}
     node_col  = [COLOR_UP if reg_map[n] == "up" else COLOR_DOWN
@@ -75,7 +75,7 @@ def plot_ppi_network(
 
     edges_list = list(H.edges(data=True))
     raw_scores = [d.get("weight", 400) for _, _, d in edges_list]
-    s_mn, s_mx = min(raw_scores), max(raw_scores)
+    s_mn, s_mx = (min(raw_scores), max(raw_scores)) if raw_scores else (0, 1)
 
     def _nw(s):
         return 0.5 + 3.5 * (s - s_mn) / (s_mx - s_mn + 1e-9)
@@ -105,7 +105,7 @@ def plot_ppi_network(
     ]
     ax.legend(handles=legend, loc="upper left", fontsize=10, framealpha=0.85)
     ax.set_title(
-        f"HCC PPI Network — top {top_nodes} hub genes\n"
+        f"STRING functional associations — top {top_nodes} HCC candidates\n"
         f"(STRING ≥ {string_score}  |log2FC| ≥ {log2fc_thresh}  padj < {padj_thresh})\n"
         "Node size = hub score  ·  Edge width = STRING confidence",
         fontsize=12, pad=14,
@@ -135,7 +135,7 @@ def plot_km_grid(
     fig, axes = plt.subplots(n_rows, n_cols,
                              figsize=(n_cols * 4.5, n_rows * 4),
                              facecolor="white")
-    axes = axes.flatten()
+    axes = np.atleast_1d(axes).flatten()
 
     for idx, gene in enumerate(top_genes):
         ax = axes[idx]
@@ -197,7 +197,7 @@ def plot_cox_forest(
 ) -> tuple:
     """Cox proportional-hazards forest plot. Returns (fig, ax)."""
     forest = (surv_df.dropna(subset=["HR", "HR_CI_low", "HR_CI_high"])
-              .sort_values("cox_p").head(top_n).iloc[::-1])
+              .sort_values("cox_p_adj" if "cox_p_adj" in surv_df else "cox_p").head(top_n).iloc[::-1])
 
     fig, ax = plt.subplots(figsize=(10, max(6, len(forest) * 0.42)),
                            facecolor="white")
@@ -205,13 +205,14 @@ def plot_cox_forest(
 
     for i, (_, row) in enumerate(forest.iterrows()):
         col  = COLOR_DOWN if row["HR"] < 1 else COLOR_UP
-        sig  = row["cox_p"] < cox_p_thresh
+        p = row.get("cox_p_adj", row["cox_p"])
+        sig  = p < cox_p_thresh
         ax.plot([row["HR_CI_low"], row["HR_CI_high"]], [y[i], y[i]],
                 color=col, lw=1.6 if sig else 0.8, alpha=0.9 if sig else 0.45)
         ax.scatter(row["HR"], y[i], color=col, s=70 if sig else 35,
                    marker="D" if sig else "o", zorder=5)
-        star = ("***" if row["cox_p"] < 0.001 else "**" if row["cox_p"] < 0.01
-                else "*" if row["cox_p"] < 0.05 else "")
+        star = ("***" if p < 0.001 else "**" if p < 0.01
+                else "*" if p < 0.05 else "")
         if star:
             ax.text(row["HR_CI_high"] + 0.02, y[i], star,
                     va="center", fontsize=9,
@@ -222,7 +223,7 @@ def plot_cox_forest(
     ax.set_yticklabels(forest["gene"], fontsize=9)
     ax.set_xlabel("Hazard ratio (HR)  95% CI", fontsize=10)
     ax.set_title("Cox proportional hazards — top DEGs\n"
-                 "◆ = significant  Left of 1.0 = protective",
+                 "◆ = Cox FDR significant; HR per expression SD",
                  fontsize=10, pad=10)
     ax.legend(handles=[mpatches.Patch(facecolor=COLOR_DOWN, label="Protective (HR<1)"),
                        mpatches.Patch(facecolor=COLOR_UP,   label="Risk (HR>1)")],
