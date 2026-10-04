@@ -64,6 +64,31 @@ def drug_records():
 
 
 class TargetChecks(unittest.TestCase):
+    def test_only_confirmed_identities_collapse_records(self):
+        records = drug_records()
+        records[1]['drug_id'] = 'other:1'
+        self.assertEqual(len(dgi.build_dgi_dataframe(records, {'A': 1}, W)), 3)
+        mapping = pd.DataFrame([dict(drug_id='other:1', canonical_drug_id='id:1',
+                                    confirmed=True, evidence_reference='verified cross-reference fixture')])
+        frame = dgi.build_dgi_dataframe(records, {'A': 1}, W, identity_map=mapping)
+        self.assertEqual(len(frame), 2)
+        self.assertIn('other:1', frame.loc[frame.gene.eq('A'), 'original_drug_ids'].iloc[0])
+        mapping['confirmed'] = False
+        with self.assertRaisesRegex(ValueError, 'confirmed'):
+            dgi.build_dgi_dataframe(records, {}, W, identity_map=mapping)
+
+    def test_scaling_sensitivity_preserves_baseline_and_zero(self):
+        records = drug_records()
+        records[0]['interaction_score'] = 0
+        records[1]['interaction_score'] = 0
+        frame = dgi.build_dgi_dataframe(records, {}, W)
+        alternative = dgi.build_dgi_dataframe(records, {}, W, interaction_scaling='log1p_max')
+        self.assertEqual(frame.loc[frame.gene.eq('A'), 'score_interaction'].iloc[0], 0)
+        self.assertEqual(alternative.loc[alternative.gene.eq('A'), 'score_interaction'].iloc[0], 0)
+        ranks, contributions = dgi.score_scaling_sensitivity(records, {}, W)
+        self.assertEqual(set(ranks.interaction_scaling), {'max', 'log1p_max'})
+        self.assertEqual(len(contributions), 10)
+
     def test_cross_batch_edges_mapping_and_isolates(self):
         with patch.object(ppi.requests, "post", side_effect=string_response):
             edges = ppi.query_string(candidates().gene.tolist(), batch_size=2, request_pause=0)
@@ -212,6 +237,7 @@ class TargetChecks(unittest.TestCase):
             # Run again with unavailable TCGA and drug API; no stale scientific
             # figures or drug evidence should survive the new failed-source run.
             exec("".join(nb["cells"][4]["source"]), scope)
+            scope['REUSE_SAVED_DGIDB'] = False
             with patch.object(requests, "post", side_effect=string_response), patch.object(api, "query_dgidb", side_effect=RuntimeError("offline")), patch.object(survival, "fetch_tcga_lihc", return_value=(None, False)), patch.object(ppi.time, "sleep"), patch.object(plt, "show"):
                 for i in range(6, 27):
                     if nb["cells"][i]["cell_type"] == "code":

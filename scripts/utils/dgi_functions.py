@@ -106,7 +106,7 @@ def _tokens(value):
     return {v.strip() for v in str(value).split(" | ") if v.strip() and v.strip() not in {"nan", "None", "<NA>"}}
 
 
-def build_dgi_dataframe(all_edges, hub_score_map, W):
+def build_dgi_dataframe(all_edges, hub_score_map, W, identity_map=None, interaction_scaling="max"):
     """Evidence ranking, preserving provenance; unknown metadata stays missing.
 
     Interaction scores are normalized ONLY for DGIdb. Other source scores are
@@ -141,13 +141,18 @@ def build_dgi_dataframe(all_edges, hub_score_map, W):
     for col in ["interaction_score", "n_publications", "clinical_phase"]:
         frame[col] = pd.to_numeric(frame[col], errors="coerce")
     frame["drug_id"] = frame.drug_id.fillna("").astype(str).str.strip()
+    from .drug_identity_functions import confirmed_identity_map
+    mapping = confirmed_identity_map(identity_map)
+    frame['original_drug_ids'] = frame.drug_id
+    frame['drug_alias_names'] = frame.drug
+    frame['drug_id'] = frame.drug_id.map(lambda value: mapping.get(value, value))
     frame["_identity"] = np.where(frame.drug_id != "", "id:" + frame.drug_id,
                                    "name:" + frame.drug.str.casefold())
     records = []
     for (_, identity), group in frame.groupby(["gene", "_identity"], sort=True):
         record = group.iloc[0].drop(labels="_identity").to_dict()
         for col in ["source", "drug_id", "interaction_type", "directionality", "publication_ids",
-                    "evidence_sources", "reference_urls", "phase_scope"]:
+                    "evidence_sources", "reference_urls", "phase_scope", "original_drug_ids", "drug_alias_names"]:
             record[col] = " | ".join(sorted(set().union(*( _tokens(v) for v in group[col]))))
         for col in ["approved", "immunotherapy", "anti_neoplastic"]:
             known = group[col].dropna().unique()
@@ -168,7 +173,11 @@ def build_dgi_dataframe(all_edges, hub_score_map, W):
         series = pd.to_numeric(series, errors="coerce")
         # Zero evidence has zero contribution even if all observed scores agree.
         return series.fillna(0).clip(lower=0) / max(series.max() if series.notna().any() else 0, 1e-9)
-    result["score_interaction"] = norm(result.interaction_score)
+    if interaction_scaling not in {'max', 'log1p_max'}:
+        raise ValueError('interaction_scaling must be max or log1p_max')
+    interaction = result.interaction_score.clip(lower=0)
+    result["score_interaction"] = norm(np.log1p(interaction) if interaction_scaling == 'log1p_max' else interaction)
+    result['interaction_scaling'] = interaction_scaling
     result["score_publications"] = norm(result.n_publications.clip(upper=30))
     result["score_phase"] = result.clinical_phase.fillna(0).clip(0, 4) / 4
     result["score_approved"] = result.approved.fillna(False).astype(float)
@@ -179,14 +188,30 @@ def build_dgi_dataframe(all_edges, hub_score_map, W):
     return result.sort_values(["composite_score", "gene", "drug"], ascending=[False, True, True]).reset_index(drop=True)
 
 
-def score_weight_sensitivity(all_edges, hub_score_map, baseline_weights, alternatives=None):
+def score_scaling_sensitivity(all_edges, hub_score_map, weights, identity_map=None):
+    """Same weights, alternate normalization; never choose from desired drug ranks."""
+    rows, contributions = [], []
+    for method in ['max', 'log1p_max']:
+        frame = build_dgi_dataframe(all_edges, hub_score_map, weights, identity_map, method)
+        for rank, record in enumerate(frame.to_dict('records'), 1):
+            rows.append(dict(interaction_scaling=method, gene=record['gene'], drug=record['drug'],
+                             drug_id=record['drug_id'], rank=rank, score=record['composite_score']))
+        for name, weight in weights.items():
+            values = weight*frame.get('score_'+name, pd.Series(dtype=float))
+            contributions.append(dict(interaction_scaling=method, component=name, nominal_weight=weight,
+                                      median_contribution=values.median(), p90_contribution=values.quantile(.9)))
+    return pd.DataFrame(rows), pd.DataFrame(contributions)
+
+
+def score_weight_sensitivity(all_edges, hub_score_map, baseline_weights, alternatives=None,
+                             identity_map=None, interaction_scaling='max'):
     """Compare edge ranks under explicitly documented heuristic weights."""
     scenarios = {"baseline": baseline_weights, **(alternatives or {
         "less_hub": dict(interaction=0.75, publications=0, phase=0, approved=0.15, hub=0.10),
         "more_hub": dict(interaction=0.55, publications=0, phase=0, approved=0.15, hub=0.30)})}
     rows = []
     for scenario, weights in scenarios.items():
-        frame = build_dgi_dataframe(all_edges, hub_score_map, weights)
+        frame = build_dgi_dataframe(all_edges, hub_score_map, weights, identity_map, interaction_scaling)
         for rank, record in enumerate(frame.to_dict("records"), 1):
             rows.append({"scenario": scenario, "gene": record["gene"], "drug": record["drug"],
                          "drug_id": record["drug_id"], "rank": rank, "score": record["composite_score"]})
@@ -457,27 +482,30 @@ def plot_dgi_dashboard(dgi_df: pd.DataFrame, figures_dir,
  
     hdf = (dgi_df[dgi_df["drug"].isin(sel)]
            .pivot_table(index="drug", columns="gene",
-                        values="composite_score", aggfunc="max", fill_value=0))
-    hdf = hdf.loc[:, (hdf > 0).any()]
+                        values="composite_score", aggfunc="max"))
+    hdf = hdf.loc[:, hdf.notna().any()]
     hdf = hdf.loc[hdf.max(axis=1).sort_values(ascending=False).index]
     if hdf.shape[1] > max_heatmap_genes:
-        col_fill = (hdf > 0).sum().sort_values(ascending=False)
+        col_fill = hdf.notna().sum().sort_values(ascending=False)
         hdf = hdf[col_fill.head(max_heatmap_genes).index]
  
-    im = ax5.imshow(hdf.values, cmap="YlOrRd", aspect="auto", vmin=0, vmax=1)
+    heatmap_cmap = plt.get_cmap('YlOrRd').copy()
+    heatmap_cmap.set_bad('#D3D3D3')
+    im = ax5.imshow(np.ma.masked_invalid(hdf.values), cmap=heatmap_cmap, aspect="auto", vmin=0, vmax=1)
     ax5.set_xticks(range(len(hdf.columns)))
     ax5.set_xticklabels(hdf.columns, rotation=90, ha="center", fontsize=7.5)
     ax5.set_yticks(range(len(hdf.index)))
     ax5.set_yticklabels(hdf.index, fontsize=7.5)
     plt.colorbar(im, ax=ax5, shrink=0.75, pad=0.02, label="Composite score")
-    ax5.set_title("E  Score heatmap — top drugs",
+    ax5.set_title("E  Top drugs (prefer ≥2 associated genes)\nGrey = no database record; columns limited",
                   fontsize=11, fontweight="bold", loc="left")
  
     # ── Suptitle ─────────────────────────────────────────────────────────────
     fig.suptitle(
         f"Drug–Gene Interaction Evidence — HCC Candidates\n"
-        f"{gc_full.shape[0]} genes · {dgi_df['drug'].nunique():,} unique drugs "
-        f"· {int(dgi_df['approved'].sum()):,} approved",
+        f"{gc_full.shape[0]} genes · {len(dgi_df):,} association rows\n"
+        f"{dgi_df['drug_id'].nunique():,} drug IDs · {dgi_df['drug'].nunique():,} names "
+        f"· {int(dgi_df['approved'].sum()):,} rows marked approved (not HCC-specific)",
         fontsize=13, fontweight="bold", y=1.01,
     )
  

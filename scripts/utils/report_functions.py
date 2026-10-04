@@ -522,6 +522,10 @@ def generate_target_report(
     survival_cols = [c for c in ["gene", "HR", "cox_p_adj", "logrank_p_adj", "ph_warning", "model", "n_events"] if c in surv_df]
     source_note = html_lib.escape(json.dumps(source_status or {}, indent=2))
     metadata = html_lib.escape(json.dumps(provenance or {}, indent=2, default=str))
+    contribution_path = Path(tables_dir) / 'score_component_contributions.csv'
+    contribution_table = table(pd.read_csv(contribution_path)) if contribution_path.exists() else '<p>Scaling diagnostics unavailable.</p>'
+    alias_path = Path(tables_dir) / 'drug_identity_audit.csv'
+    alias_table = table(pd.read_csv(alias_path).query('n_ids_in_alias_group > 1')) if alias_path.exists() else '<p>Identity audit unavailable.</p>'
     html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
     <title>Target prioritisation: {html_lib.escape(contrast)}</title>{_CSS}</head><body>
     <h1>Target prioritisation: {html_lib.escape(contrast)}</h1><p>Generated {_now()}</p>
@@ -547,6 +551,15 @@ def generate_target_report(
     <p>Weights: {html_lib.escape(str(W))}. Publication and phase weights default to zero.
     Original mechanisms, direction and references require review before candidate selection.</p>
     {picture('dgi_summary_dashboard.png', 'Drug interaction evidence overview')}{table(dgi_df[evidence_cols])}
+    <h2>Score normalization and identity review</h2>
+    <p>Baseline normalization: {html_lib.escape(str((provenance or {}).get('interaction_scaling', 'max')))}.
+    Compare max and log1p/max normalization using the same weights in score_scaling_sensitivity.csv.
+    Actual contributions can differ substantially from nominal weights. Choose no scaling rule to favor a desired drug.</p>
+    {contribution_table}
+    <p>Identical names or IDs form conservative candidate alias groups for label splitting, not proof of chemical equivalence.
+    Only confirmed mappings with cited evidence collapse distinct database IDs. Review biological_review_queue.csv for
+    directness, mechanism, desired action, HCC relevance and cell-type support. Downregulated pooled genes are not automatically targets to inhibit.</p>
+    {alias_table}
     <h2>Run provenance</h2><pre>{metadata}</pre></body></html>"""
     reports_dir.mkdir(parents=True, exist_ok=True)
     out = reports_dir / "02_target_prioritisation_report.html"
