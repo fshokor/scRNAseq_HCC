@@ -1,0 +1,4 @@
+gene,contrast,log2FC,gene_FDR,detection_HCC2,detection_HCC1,term,term_ID,NES,pathway_FDR,gene_in_leading_edge,source
+PDCD1,celltype_T_cell,1.6997308,2.2410130239028173e-54,0.2572192513369024,0.0951802349129198,T cell activation,GO:0042110,1.53374013037863,0.000538862159722447,True,results\tables\sample_contrasts\celltype_T_cell\gsea_go_bp.csv
+ACTA2,celltype_Fibroblast,2.3765852,6.869716814858504e-13,0.9108910891089116,0.6583629893238419,muscle contraction,GO:0006936,2.08466151779566,1.05372399046007e-07,True,results\tables\sample_contrasts\celltype_Fibroblast\gsea_go_bp.csv
+COL3A1,celltype_Fibroblast,-2.3242335,4.9386180211649234e-17,0.5841584158415845,0.9750889679715276,integrin-mediated signaling pathway,GO:0007229,-1.78759425834132,0.00397503547871838,True,results/tables/sample_contrasts/celltype_Fibroblast/gsea_go_bp.csv

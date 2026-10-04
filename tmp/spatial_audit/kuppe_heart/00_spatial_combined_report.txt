@@ -1,0 +1,293 @@
+
+   
+     OmicSage  — kuppe_heart 
+     Generated 2026-06-17 14:19 · 6 of 6 pipeline steps complete 
+     
+       
+       100% · QC Â· Reduce Â· Cluster Â· Deconvolve Â· Downstream Â· Impute 
+     
+   
+   
+     ðŸ”¬ QC 
+ ðŸ”­ Reduce 
+ ðŸ«§ Cluster 
+ ðŸ§¬ Deconvolve 
+ ðŸ”— Downstream 
+ ðŸ§© Impute 
+   
+   
+ 
+       Run Summary 
+       Dataset:  kuppe_heart  · 2026-06-16 23:56 
+       11,725 Spots input 11,706 Spots kept 19 Spots removed 99.8% Pass rate 36,588 Genes 
+       QC Metric Summary (retained spots) 
+       
+         
+           Metric Mean Median Std Min Max 
+         
+         Total UMI counts 3590.0 3458.0 1137.6 502.0 17719.0 Genes detected 1735.0 1704.0 394.0 376.0 5036.0 MT gene % 0.0 0.0 0.0 0.0 0.0 
+       
+       Filter Thresholds Applied 
+       
+         Parameter Value 
+         min_counts 500 max_counts 100000 min_genes 200 max_genes 10000 max_mt_pct 20.0 mt_prefix MT- filter_spots True 
+       
+     
+    
+
+     
+       Tissue Array Overview 
+       Spots overlaid on the H&E image. Left: capture-area mask ( in_tissue ). Right: array row gradient confirming correct orientation. 
+       
+         
+           
+         
+       
+     
+    
+
+     
+       QC Metric Distributions 
+       
+         
+           Violin plots per spot 
+           
+         
+       
+     
+    
+
+     
+       Spatial Distribution of QC Metrics (on H&E) 
+       High MT% spots concentrated at tissue edges may indicate damaged cells.
+         Low-count spots in the tissue interior may reflect poor RNA capture. 
+       Total UMI counts per spot MT gene % per spot 
+     
+    
+
+     
+       Filter Breakdown 
+       
+         
+           Spots removed per filter criterion 
+           
+         
+       
+       Spots may fail multiple filters simultaneously — counts may overlap. 
+     
+ 
+ 
+ 
+       Run Summary 
+       Dataset:  kuppe_heart  · 2026-06-16 23:57 
+      
+       11,706 Spots 36,588 Genes (total) 3,000 HVGs selected 50 PCA components 18.4% Variance (top 10 PCs) 30,510 Spatial graph edges 5.21 Mean neighbours/spot 
+       Parameters 
+       
+         Parameter Value 
+         normalize_total True target_sum 10000 log1p True n_top_genes (HVG) 3000 hvg_flavor seurat n_comps (PCA) 50 n_neighbors 6 coord_type None (auto) 
+       
+     
+    
+
+     
+       Highly Variable Gene Selection 
+       Genes are ranked by normalized dispersion. HVGs (orange) are used for PCA and downstream clustering. 
+       
+         
+           Mean expression vs normalized dispersion 
+           
+         
+       
+     
+    
+
+     
+       PCA 
+       PCA run on HVGs. The elbow plot shows variance explained per component; the red dashed line marks 90% cumulative variance. 
+       Variance explained (elbow plot) PCA â€” spots coloured by total counts 
+     
+    
+
+     
+       Spatial Structure 
+       Left: expression of the most variable gene overlaid on the tissue array.
+         Right: distribution of spatial neighbours per spot â€” Visium grids produce 6 neighbours for interior spots. 
+       Top HVG expression overlaid on H&E image Spatial neighbours per spot 
+     
+ 
+ 
+ 
+       Run Summary 
+       Dataset:  kuppe_heart  · 2026-06-16 23:57 
+      
+       11,706 Spots 5 Leiden clusters 0.5 Resolution 102 SVGs (FDR<0.05) 3,000 Genes tested 
+       Top SVGs ENSG00000175206   ENSG00000143632   ENSG00000244734   ENSG00000100292   ENSG00000053108 
+       Parameters 
+       
+         Parameter Value 
+         cluster_key spatial_cluster resolution 0.5 n_neighbors (KNN) 15 n_pcs 30 run_svg True annotation_map no 
+       
+     
+    
+
+     
+       Leiden Clustering 
+       Spots are clustered using the Leiden algorithm on the KNN graph built from PCA embeddings.
+         Cluster colours are consistent between the spatial and size panels. 
+       Leiden clusters overlaid on H&E image Spots per cluster 
+     
+    
+
+     
+       Spatially Variable Genes (Moran's I) 
+       Moran's I measures spatial autocorrelation: genes with high scores are expressed
+         in spatially coherent patterns rather than randomly across spots.
+         Red bars indicate significance at FDR < 0.05. 
+       Moran's I scores â€” top 20 SVGs Top SVGs overlaid on H&E image 
+      
+         Top 20 SVGs 
+         
+           
+             Gene Moran's I p-value FDR-adjusted p 
+           
+           ENSG00000175206 0.2409 0.00e+00 0.00e+00  â˜… ENSG00000143632 0.1414 0.00e+00 0.00e+00  â˜… ENSG00000244734 0.1396 0.00e+00 0.00e+00  â˜… ENSG00000100292 0.1174 0.00e+00 0.00e+00  â˜… ENSG00000053108 0.1130 0.00e+00 0.00e+00  â˜… ENSG00000211892 0.1068 0.00e+00 0.00e+00  â˜… ENSG00000087086 0.1027 0.00e+00 0.00e+00  â˜… ENSG00000211679 0.0886 0.00e+00 0.00e+00  â˜… ENSG00000106366 0.0782 0.00e+00 0.00e+00  â˜… ENSG00000120937 0.0695 0.00e+00 0.00e+00  â˜… ENSG00000256618 0.0671 0.00e+00 0.00e+00  â˜… ENSG00000188536 0.0585 0.00e+00 0.00e+00  â˜… ENSG00000269028 0.0478 1.11e-16 1.51e-14  â˜… ENSG00000137077 0.0445 1.24e-14 1.55e-12  â˜… ENSG00000173626 0.0422 2.47e-13 2.85e-11  â˜… ENSG00000189058 0.0417 4.66e-13 5.18e-11  â˜… ENSG00000156508 0.0390 1.12e-11 1.20e-09  â˜… ENSG00000122641 0.0366 1.71e-10 1.66e-08  â˜… ENSG00000206172 0.0363 2.54e-10 2.38e-08  â˜… ENSG00000272918 0.0359 3.88e-10 3.53e-08  â˜… 
+         
+         ★ = FDR < 0.05  ·  Showing top 20 of 3,000 tested genes 
+        
+     
+ 
+ 
+ 
+       Run Summary 
+       Dataset:  kuppe_heart  · 2026-06-12 13:46 
+       NNLS (proportions, memory-safe) Method 11,706 Spots 11 Cell types 26,698 Shared genes by  patient_region_id Per-sample loop 
+       Cell Types Adipocyte   Cardiomyocyte   Cycling cells   Endothelial   Fibroblast   Lymphoid   Mast   Myeloid   Neuronal   Pericyte   vSMCs 
+     
+    
+
+     
+       Cell Type Abundances 
+       NNLS outputs proportions (sum to 1 per spot). cell2location outputs
+         absolute abundances. The dominant-cell-type panel uses an argmax
+         across cell types per spot — written to  obs["dominant_cell_type"] . 
+       Mean abundance per cell type Dominant cell type per spot Top 6 cell types — spatial abundance 
+     
+    
+
+     
+       Parameters Used 
+       
+         Parameter Value 
+         method nnls per_sample yes library_key patient_region_id cell_type_key cell_type_original layer_ref counts n_jobs 4 target_sum 10000 
+       
+     
+ 
+ 
+ 
+       Run Summary 
+       Dataset:  kuppe_heart  · 2026-06-12 15:52 
+       49 region clusters 11 cell types (expr) 5 cell types (SVG) 1004 SVG pathways 
+       Analysis Status 
+       
+         Analysis Status 
+         Region clustering âœ“ Cell-type expression âœ“ Cell-type SVGs âœ“ Co-occurrence âœ“ Neighbourhood enrichment âœ“ Ligand-receptor âœ“ SVG pathway enrichment âœ“ 
+       
+     
+    
+
+     
+       Region Clustering (Cell Type Composition) 
+       Spots are clustered by their deconvolved cell type composition using Leiden
+         clustering on the cell type abundance KNN graph (resolution=0.5).
+         Each region represents a tissue niche with a characteristic cell type mixture. 
+       49  tissue regions identified. 
+       UMAP of cell type composition Region clusters on tissue 
+     
+    
+
+     
+       Cell-type Marker Genes (Spatial Correlation) 
+       Genes whose expression most strongly correlates (Spearman) with each cell type's
+         abundance across spots. Top 10 of 20 stored genes shown. 
+       
+         Cell Type Top Correlated Genes 
+         Adipocyte AC007325.2 ,  AC007325.4 ,  AC007325.1 ,  AC023491.2 ,  AC141272.1 ,  AC136616.2 ,  AC136616.3 ,  AC136616.1 ,  AC136612.1 ,  AC133551.1 Cardiomyocyte TTN ,  MTRNR2L12 ,  FTL ,  NPPB ,  COX6A2 ,  COL6A2 ,  NDUFA4 ,  TIMP1 ,  MGP ,  UQCRB Cycling cells AC007325.2 ,  AC007325.4 ,  AC007325.1 ,  AC023491.2 ,  AC141272.1 ,  AC136616.2 ,  AC136616.3 ,  AC136616.1 ,  AC136612.1 ,  AC133551.1 Endothelial TTN ,  MGP ,  MYH7 ,  MTRNR2L12 ,  FHL2 ,  VIM ,  TMSB10 ,  EEF1A1 ,  ACTB ,  IFITM3 Fibroblast AC007325.2 ,  AC007325.4 ,  AC007325.1 ,  AC023491.2 ,  AC141272.1 ,  AC136616.2 ,  AC136616.3 ,  AC136616.1 ,  AC136612.1 ,  AC133551.1 Lymphoid MALAT1 ,  MTRNR2L1 ,  NPPB ,  ACTA1 ,  MYL2 ,  ANKRD1 ,  TTN ,  MYL4 ,  PTGDS ,  FABP3 Mast CHP2 ,  TEX54 ,  FAM92B ,  AC012236.1 ,  AMPD1 ,  IGKV1-16 ,  HOXA10 ,  AC069148.1 ,  LINC00471 ,  AL445228.2 Myeloid LYVE1 ,  F13A1 ,  VSIG4 ,  CD163 ,  C1QA ,  CTSB ,  C1QB ,  C1QC ,  MS4A4A ,  FCER1G Neuronal TTN ,  MALAT1 ,  COL6A2 ,  NPPB ,  COL1A1 ,  NDUFA4 ,  COX7A1 ,  IGFBP7 ,  COX6A2 ,  MTRNR2L8 Pericyte GLYAT ,  AC079921.1 ,  NEK2 ,  AC090617.1 ,  CFHR1 ,  KCNJ6 ,  CU634019.5 ,  AL159169.3 ,  AC117382.2 ,  AC011700.1 vSMCs LINC00661 ,  AL096706.1 ,  AC027237.3 ,  GLYAT ,  AL008733.1 ,  AP004609.1 ,  AC084064.1 ,  MAT1A ,  AC007014.2 ,  AC021723.2 
+       
+     
+    
+
+     
+       Cell-type Specific Spatially Variable Genes 
+       Moran's I computed on spots where each cell type is above median abundance.
+         Top 5 SVGs per cell type shown (analytical p-values). 
+       
+         Cell Type Top SVGs 
+         Cardiomyocyte ENSG00000211677 ,  ENSG00000175206 ,  ENSG00000143632 ,  ENSG00000120937 ,  ENSG00000211897 Endothelial ENSG00000175206 ,  ENSG00000143632 ,  ENSG00000256618 ,  ENSG00000120937 ,  ENSG00000198336 Lymphoid ENSG00000087086 ,  ENSG00000167996 ,  ENSG00000120937 ,  ENSG00000164326 ,  ENSG00000175206 Myeloid ENSG00000211675 ,  ENSG00000181374 ,  ENSG00000198885 ,  ENSG00000105519 ,  ENSG00000269028 Neuronal ENSG00000111245 ,  ENSG00000143632 ,  ENSG00000198125 ,  ENSG00000211675 ,  ENSG00000251562 
+       
+     
+    
+
+     
+       Spatial Co-occurrence 
+       Co-occurrence score (conditional probability ratio) of each cell type
+         co-occurring with the most abundant type across increasing radii.
+         Scores > 1 indicate spatial enrichment at that distance. 
+       Co-occurrence scores vs distance 
+     
+    
+
+     
+       Neighbourhood Enrichment 
+       Permutation-based test (1000 permutations) on the spatial adjacency graph.
+         High z-scores indicate cell type pairs that are more often neighbours than
+         expected by chance. Negative values indicate spatial exclusion. 
+       Enrichment data computed but plot could not be rendered (check logs for details). 
+     
+    
+
+     
+       Ligand-Receptor Communication 
+       Permutation test (CellPhoneDB-like) for ligand-receptor interactions between
+         spatially co-localised cell types, using the OmniPath database.
+         Bar chart shows the top 20 pairs ranked by −log₁₀(p).
+         Dotplot is restricted to the 6 cell types with the most significant interactions. 
+       8,356 interactions at p < 0.001 (21,452 at p < 0.05) across 36 cell-type pairs. 
+       Top 20 LR pairs by significance Focused dotplot â€” top 6 cell types (click to expand) 
+     
+    
+
+     
+       SVG Pathway Enrichment (GSEA) 
+       Pre-ranked GSEA using Moran's I scores as the gene ranking.
+         Genes with high spatial autocorrelation are ranked first.
+         Red bars indicate positively enriched pathways; blue = depleted. 
+       
+      
+             Top 20 enriched pathways 
+             
+               Pathway NES FDR q-val 
+               Positive Regulation Of Cell Differentiation (GO:0045597) -1.860 1.378e-02  â˜… Nitrogen Compound Transport (GO:0071705) 1.608 5.190e-01  Intracellular Iron Ion Homeostasis (GO:0006879) 1.619 5.208e-01  Memory (GO:0007613) 1.583 5.318e-01  Regulation Of JUN Kinase Activity (GO:0043506) 1.590 5.392e-01  One-Carbon Compound Transport (GO:0019755) 1.610 5.409e-01  Regulation Of Protein Kinase Activity (GO:0045859) 1.594 5.444e-01  Actomyosin Structure Organization (GO:0031032) -1.653 5.479e-01  Response To Alcohol (GO:0097305) 1.585 5.498e-01  Purine Ribonucleotide Biosynthetic Process (GO:0009152) 1.517 5.518e-01  Enzyme-Linked Receptor Protein Signaling Pathway (GO:0007167) 1.576 5.605e-01  Protein Catabolic Process (GO:0030163) 1.518 5.632e-01  Regulation Of Angiogenesis (GO:0045765) 1.571 5.642e-01  Response To Hydrogen Peroxide (GO:0042542) 1.596 5.642e-01  Positive Regulation Of Neutrophil Migration (GO:1902624) 1.619 5.670e-01  Positive Regulation Of Neutrophil Chemotaxis (GO:0090023) 1.619 5.670e-01  Positive Regulation Of Granulocyte Chemotaxis (GO:0071624) 1.619 5.670e-01  Positive Regulation Of Endocytosis (GO:0045807) 1.512 5.735e-01  Macrophage Differentiation (GO:0030225) 1.530 5.752e-01  Regulation Of Receptor-Mediated Endocytosis (GO:0048259) 1.510 5.760e-01  
+             
+             ★ = FDR < 0.05  · 
+              Gene sets:  GO_Biological_Process_2023   · 
+              1 significant of 1004 tested 
+            
+     
+ 
+ 
+ 1. Run Summary Generated 2026-06-12 14:59 2000 Genes imputed Tangram Method N/A Mean mapping score 11,706 Spots 0 Poor-score spots (<0.1) Method:   tangram     SC reference:   kuppe_snRNA_human_heart_2022_control.h5ad Mapping score interpretation: values â‰¥ 0.1 indicate reliable scâ†’spot assignment. Spots below 0.1 may be in tissue regions not well-represented by the scRNA-seq reference. 
+ 2. Mapping Score Distribution Per-spot mapping scores are not available in  clusters  mode. In clusters mode Tangram maps per-cell-type signatures onto spots rather than individual cells, so there is no per-spot quality score. To obtain per-spot mapping scores, set  tangram_mode: cells  in your config (note: cells mode requires significantly more memory). 
+ 3. Top Imputed Genes on Tissue Top 5 genes by variance in imputed expression â€” these are the genes not in the original Visium panel whose spatial expression patterns are predicted from the scRNA-seq reference. Brighter spots indicate higher predicted expression. ENSG00000251562 ENSG00000155657 ENSG00000198626 ENSG00000245532 ENSG00000183023 
+ 4. Imputation Validation Scatter of mean measured vs mean imputed expression across 50 genes shared between the spatial panel and the imputed gene set. High Spearman correlation indicates that the imputation model has learned biologically realistic gene relationships. Low imputation correlation: Spearman r = 0.292. Check that the scRNA-seq reference is from a matched cell type composition and that gene IDs are consistent. Measured vs imputed mean expression 
+ 
+
+   
+     × 
+     
+     
+   
+   
+    Generated by  OmicSage  · MIT License
+   
+  

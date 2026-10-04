@@ -1,0 +1,12 @@
+{
+  "data\\processed\\adata_annotated.h5ad": "b8a655237a36492763ce1efc5fd94fc61ddb5dcdabab417d0d138366d124f13a",
+  "data\\processed\\sample_contrasts\\provenance.json": "5f8987d661c65fcdf5869e79e68ea8e2b5ddd34e8deafd110b5ca82d46a784ff",
+  "data\\processed\\sample_contrasts\\contrast_summary.csv": "c22813ea201964351b41ad90dc3ea5b55bd747fdd282441871fa8c1def803037",
+  "results\\tables\\evidence_score_regression\\pooled\\provenance.json": "982661a7c1161d41fa984399b2a25db02eabc8a1c7882c2ec20f6f174edeaf8f",
+  "results\\tables\\target_prioritisation\\pooled\\provenance.json": "f5de967aab3c113755a47c38f1fb4efe7bfff93dea2e903d9bca68e1762c209d",
+  "docs\\interview_preparation\\cell_composition_counts.csv": "153d31ab632e8a2203b1d2d3a285eff8c880e209c404aa9de8a663090946f532",
+  "docs\\interview_preparation\\cell_composition_percent.csv": "2fb1b1f9706c799f8e39b84b5245bd3cbdd786596e8ebb62c4644cc6b6a9ff64",
+  "docs\\interview_preparation\\model_comparison.csv": "88d13e18a5f3228be7b1e03d78e2cf1944e9b84e326f646a7caffc6d401a2caf",
+  "docs\\interview_preparation\\selected_gene_evidence.csv": "b5914039ac1009ee054a58e7067c226419708ca27e8d351ccc93883fbe0bc9c4",
+  "docs\\interview_preparation\\selected_pathway_evidence.csv": "4db38244edd5302086235561e816a35b1894cc9ad13c840633e56f6937e0aaac"
+}

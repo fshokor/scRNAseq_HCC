@@ -1,0 +1,146 @@
+and G2M), shown in Fig. 5A are separated and show phase-speciﬁc tran-
+scriptional activity. The Heatmap of the top variable genes across cell cycle
+phases in Fig.5B highlighted immune-related genes like IGHG1, IFNG, and
+CCL20 exhibited phase-dependent ex pression, indicating the immune
+system’s involvement in tumor progression.
+Differential expression analysis (DEA)
+DEA is conducted to determine differential gene expression between HCC1
+and HCC2 by identifying transcriptional changes. There are 1178 DEGs
+with an adjusted p value < 0.05. Of them, 926 were up-regulated in HCC2,
+and 252 were down-regulated. The most upregulated DEGs between HCC1
+and HCC2 shown in Fig. 5C, notably reﬂect signiﬁcant downregulation of
+genes such as APOA2, ALB, and SERPINA1 in tumor tissues, suggesting
+dysregulation of pathways involved in metabolic and immune function in
+association with hepatocellular carcinoma (HCC). Figure 5Ds h o w sd i f -
+ferential expression analysis, with signi ﬁcantly dysregulated genes
+(log
+2FC > 1, padj < 0.05), such as APOA2, SERPINA1, and FTL, being
+among the most signi ﬁcant candidates with pote ntial as biomarkers for
+HCC progression.
+The ﬁgure demonstrates TME variability via varied gene expression
+across cell cycle phases and tumor subtypes, which inﬂuences drug sensi-
+tivity estimates. The observed heterogeneity in UMAP clustering, heatmaps,
+and differential expression analysis indicates that gene expression dynamics
+inﬂuence tumor response to therapies. Integrating TME variability into drug
+response models improves predictiveaccuracy, allowing for more tailored
+and effective cancer treatment options.
+Protein-protein interaction (PPI)
+Using STRINGdb, a PPI analysis of 1178 DEGs in liver cancer is con-
+structed. The network presented in Fig.6A shows interactions among the
+key proteins, with nodes representing genes and edges signifying functional
+associations. Figure6B is a hub gene network extracted using Cytohubba.
+Here, the top hub genes are highlighted based on centrality measures. APOE
+and GAPDH are key nodes (red), suggesting they are highly connected and
+play a regulatory role. Other signiﬁcant genes, such as SERPINA1, CTSB,
+GRN, AIF1, etc., are colored according to their importance, with highly
+interconnected genes appearing in warmer colors, from yellow to orange.
+This network analysis provides critical insights into the molecular interac-
+tions driving liver cancer and assists in prioritizing targets for drug
+discovery.
+Gene set enrichment analysis (GSEA)
+Gene set enrichment analysis (GSEA) is conducted to uncover the dysre-
+gulated biological pathways in hepatocellular carcinoma (HCC), including
+lipid metabolism, glucose metabolism, immune response, and cellular
+interaction. Network visualization in Fig.7 of the genes enriched in various
+biological pathways from DisGeNET, Reactome, and KEGG, such as Liver
+Cirrhosis, Cholesterol Metabolism, and Alzheimer’s disease (Late), shares
+molecular connections with genes like APOE, LIPA, and S100A9. To pro-
+mote clarity in pathway enrichment interpretation, related pathways are
+classiﬁed into functional groups. Table1 outlines major enriched pathways,
+linked genes, and their biological fu nctions, allowing for a structured
+comprehension of their roles in HCC progression. Some genes in lipid
+metabolism, particularly FABP5, FABP1, and AIF1, have roles in trans-
+porting fatty acids and lipid storage wi t h i nc e l l si sc r i t i c a li nc h o l e s t e r o l
+metabolism pathways for APOE, APOC1, and LIPA. Other glycolysis or
+gluconeogenesis-related genes, such as GAPDH, ALDOA, and ENO1, also
+provide signiﬁcant insights regarding the ro le in energy production and
+metabolic adaptation of HCC. The Innate Immune System pathway shows
+inﬂammatory responses related to liver diseases, where genes such as
+TYROBP and FCER1G are signi ﬁcantly involved in the tumor micro-
+environment. Figure8A shows that enriched biological processes, including
+cytokine production regulation, immune effector processes, and antigen
+processing, are all signiﬁcant for hepatic immune modulation and tolerance,
+as well as cell-cell adhesion and lipid metabolism, contributing to hepatic
+tissue integrity and metabolic homeostasis. Molecular functions (Fig. 8B)
+include cadherin binding, MHC protein complex binding, and
+oxidoreduction-driven transmembrane transporter activity, all contributing
+Phase
+G1
+G2M
+S
+Umap_1
+2_pamU
+G1
+S
+G2M
+JCHAIN
+IGHG1
+IGHG4
+MZB1
+IGLC2
+GNLY
+IGLC3
+IGHA1
+DERL3
+IGHM
+IFNG
+IGFBP7
+SPINK1
+CCL20
+CCL4L2
+G0S2
+IGLV6-57
+IGLV1-40
+CD79A
+SSR4
+Top Variable Features Heatmap
+G1
+Expression
+S G2M
+APOA2
+ALB
+FTL
+SERPINA1
+APOE
+APOC1
+SPP1
+LGALS1
+APOA1
+NPC2
+CTSB
+CSTB
+Expression
+2
+1
+0
+-1
+2
+1
+0
+-1
+-2
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Identity
+Identity
+Differential Expression: HCC1 vs HCC2
+Enhanced Volcano
+NS
+Log₂ FC
+p-value
+p – value and log₂ FC
+Log₂ fold change
+ 
+ Total = 1179 variables
+Fig. 5 | Single-cell RNA-seq analysis of HCC. AUMAP clustering by cell cycle phase.B Variable gene heatmap. C DEG heatmap between HCC1 and HCC2.D Volcano plot
+of DEGs.
+https://doi.org/10.1038/s41698-025-00952-3 Article
+npj Precision Oncology |           (2025) 9:309 5

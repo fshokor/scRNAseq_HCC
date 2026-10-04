@@ -1,0 +1,28 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {Presentation,PresentationFile} from '@oai/artifact-tool';
+const dir=path.resolve('tmp/hcc_slide_edit');
+const manifest=JSON.parse((await fs.readFile('results/tables/evidence_score_regression/pooled/provenance.json','utf8')).replace(/\bNaN\b/g,'null'));
+const p=Presentation.create({slideSize:{width:1280,height:720}});const s=p.slides.add();s.background.fill='#0B1822';
+function txt(t,x,y,w,h,size=20,color='#F4F8FB',bold=false){const sh=s.shapes.add({geometry:'textbox',position:{left:x,top:y,width:w,height:h},fill:'none',line:{fill:'none',width:0}});sh.text=t;sh.text.style={typeface:'Aptos',fontSize:size,color,bold,autoFit:'none'};}
+txt('08 / HCC GRAPH MODEL',60,30,1160,30,17,'#55D0C7',true);
+txt('Graph neural networks for evidence-score regression',60,77,1160,62,34,'#F4F8FB',true);
+txt('Task: estimate a constructed score for known drug–gene associations.',60,147,1160,42,22,'#A9BAC6');
+txt('INPUT AND MODEL',60,216,550,34,19,'#55D0C7',true);
+txt('Bipartite graph: genes and drug database IDs\nEdges: known DGIdb associations\nFeatures: gene expression, hub scores and\ndrug / interaction evidence metadata',60,266,560,130,21);
+txt('Architectures: GCN, GAT and GraphSAGE\nGrouped label splits; validation-only selection\nThree initialization seeds per model',60,409,560,100,20,'#A9BAC6');
+txt('Target: 0.65 × interaction + 0.15 × approval\n             + 0.20 × hub score',60,506,560,60,19,'#F6A04D');
+txt('HELD-OUT TEST RESULTS',664,216,550,34,19,'#55D0C7',true);
+const vals=[['Model','MSE','R²'],['GraphSAGE','4.80 × 10⁻⁵','0.991'],['MLP','7.93 × 10⁻⁵','0.985'],['Without neighbors','6.83 × 10⁻⁵','0.987'],['Ridge','1.18 × 10⁻¹¹','≈1.000'],['Training mean','5.41 × 10⁻³','−0.001']];
+const tb=s.tables.add({rows:6,columns:3,left:664,top:267,width:550,height:276,columnWidths:[225,205,120],values:vals});
+tb.cells.block({row:0,column:0,rowCount:6,columnCount:3}).assign({fill:'#112634',textStyle:{typeface:'Aptos',fontSize:19,color:'#F4F8FB'},margins:{left:12,right:10,top:12,bottom:12}});
+tb.cells.block({row:0,column:0,rowCount:1,columnCount:3}).assign({fill:'#245466',textStyle:{typeface:'Aptos',fontSize:19,color:'#F4F8FB',bold:true}});
+tb.cells.block({row:4,column:0,rowCount:1,columnCount:3}).assign({textStyle:{typeface:'Aptos',fontSize:19,color:'#55D0C7',bold:true}});
+for(let i=0;i<6;i++)tb.rows[i].height=46;
+txt('Ridge best reconstructs the rule-derived score; the transparent ranking remains primary.',60,585,1160,42,23,'#55D0C7',true);
+txt('GraphSAGE wins among the tested GNNs. This evaluates score approximation on a known graph.\nNo experimental efficacy labels; no validation of novel links or responses in unseen drugs.',60,630,1160,48,17,'#A9BAC6');
+txt('Current pooled model run · baseline comparison',60,691,1040,22,13,'#7F9AAF');txt('8',1175,690,45,22,15,'#7F9AAF');
+s.speakerNotes.textFrame.setText(`Current completed notebook 03 pooled evidence-score regression run. Inputs: gene/drug nodes on known unweighted DGIdb graph; typed node features and pair evidence/metadata. The composite target uses max-normalized DGIdb interaction evidence, recorded approval and hub centrality, weights 0.65/0.15/0.20. Publication/phase weights are zero. Approval is not HCC approval. Available score ingredients explain why a linear Ridge approximator nearly reconstructs the target. GraphSAGE selected among GNNs by mean validation MSE; Ridge best among learned approximators by validation. Displayed test metrics from results/tables/evidence_score_regression/pooled/test_metrics.csv, also docs/interview_preparation/model_comparison.csv. Gene × candidate alias groups kept together in label splits; train 19207, validation 4127, test 4118. Known graph associations remain visible during label holdout, so this is not novel-link or cold-start evaluation. Seeds 42/43/44 show initialization stability, not patient uncertainty. Only one test association has reference score >0.5, limiting top-tail evaluation. No drug response, binding or efficacy ground truth. Primary prioritisation is the original transparent score, with biological/source review required. Subsequent audit found XIST mapped to HNRNPU in upstream STRING mapping: upstream hub features require mapping audit before biological validation, and these metrics describe the saved run rather than an independently validated therapeutic model. Supporting files: current notebook 03 provenance, test_metrics.csv, validation_comparison.csv and test_score_band_metrics.csv. Model parameters/provenance: ${JSON.stringify(manifest.training)}.`);
+await(await PresentationFile.exportPptx(p)).save(path.join(dir,'gnn-slide.pptx'));
+const png=await p.export({slide:s,format:'png',scale:1.5});await fs.writeFile(path.join(dir,'gnn-slide.png'),new Uint8Array(await png.arrayBuffer()));
+console.log('GNN slide exported.');

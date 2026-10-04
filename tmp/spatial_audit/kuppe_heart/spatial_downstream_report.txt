@@ -1,0 +1,103 @@
+
+   
+     OmicSage — Spatial Downstream Report 
+     Dataset: kuppe_heart · Generated 2026-06-12 15:52 
+   
+   
+    
+     
+       Run Summary 
+       Dataset:  kuppe_heart  · 2026-06-12 15:52 
+       49 region clusters 11 cell types (expr) 5 cell types (SVG) 1004 SVG pathways 
+       Analysis Status 
+       
+         Analysis Status 
+         Region clustering âœ“ Cell-type expression âœ“ Cell-type SVGs âœ“ Co-occurrence âœ“ Neighbourhood enrichment âœ“ Ligand-receptor âœ“ SVG pathway enrichment âœ“ 
+       
+     
+    
+
+     
+       Region Clustering (Cell Type Composition) 
+       Spots are clustered by their deconvolved cell type composition using Leiden
+         clustering on the cell type abundance KNN graph (resolution=0.5).
+         Each region represents a tissue niche with a characteristic cell type mixture. 
+       49  tissue regions identified. 
+       UMAP of cell type composition Region clusters on tissue 
+     
+    
+
+     
+       Cell-type Marker Genes (Spatial Correlation) 
+       Genes whose expression most strongly correlates (Spearman) with each cell type's
+         abundance across spots. Top 10 of 20 stored genes shown. 
+       
+         Cell Type Top Correlated Genes 
+         Adipocyte AC007325.2 ,  AC007325.4 ,  AC007325.1 ,  AC023491.2 ,  AC141272.1 ,  AC136616.2 ,  AC136616.3 ,  AC136616.1 ,  AC136612.1 ,  AC133551.1 Cardiomyocyte TTN ,  MTRNR2L12 ,  FTL ,  NPPB ,  COX6A2 ,  COL6A2 ,  NDUFA4 ,  TIMP1 ,  MGP ,  UQCRB Cycling cells AC007325.2 ,  AC007325.4 ,  AC007325.1 ,  AC023491.2 ,  AC141272.1 ,  AC136616.2 ,  AC136616.3 ,  AC136616.1 ,  AC136612.1 ,  AC133551.1 Endothelial TTN ,  MGP ,  MYH7 ,  MTRNR2L12 ,  FHL2 ,  VIM ,  TMSB10 ,  EEF1A1 ,  ACTB ,  IFITM3 Fibroblast AC007325.2 ,  AC007325.4 ,  AC007325.1 ,  AC023491.2 ,  AC141272.1 ,  AC136616.2 ,  AC136616.3 ,  AC136616.1 ,  AC136612.1 ,  AC133551.1 Lymphoid MALAT1 ,  MTRNR2L1 ,  NPPB ,  ACTA1 ,  MYL2 ,  ANKRD1 ,  TTN ,  MYL4 ,  PTGDS ,  FABP3 Mast CHP2 ,  TEX54 ,  FAM92B ,  AC012236.1 ,  AMPD1 ,  IGKV1-16 ,  HOXA10 ,  AC069148.1 ,  LINC00471 ,  AL445228.2 Myeloid LYVE1 ,  F13A1 ,  VSIG4 ,  CD163 ,  C1QA ,  CTSB ,  C1QB ,  C1QC ,  MS4A4A ,  FCER1G Neuronal TTN ,  MALAT1 ,  COL6A2 ,  NPPB ,  COL1A1 ,  NDUFA4 ,  COX7A1 ,  IGFBP7 ,  COX6A2 ,  MTRNR2L8 Pericyte GLYAT ,  AC079921.1 ,  NEK2 ,  AC090617.1 ,  CFHR1 ,  KCNJ6 ,  CU634019.5 ,  AL159169.3 ,  AC117382.2 ,  AC011700.1 vSMCs LINC00661 ,  AL096706.1 ,  AC027237.3 ,  GLYAT ,  AL008733.1 ,  AP004609.1 ,  AC084064.1 ,  MAT1A ,  AC007014.2 ,  AC021723.2 
+       
+     
+    
+
+     
+       Cell-type Specific Spatially Variable Genes 
+       Moran's I computed on spots where each cell type is above median abundance.
+         Top 5 SVGs per cell type shown (analytical p-values). 
+       
+         Cell Type Top SVGs 
+         Cardiomyocyte ENSG00000211677 ,  ENSG00000175206 ,  ENSG00000143632 ,  ENSG00000120937 ,  ENSG00000211897 Endothelial ENSG00000175206 ,  ENSG00000143632 ,  ENSG00000256618 ,  ENSG00000120937 ,  ENSG00000198336 Lymphoid ENSG00000087086 ,  ENSG00000167996 ,  ENSG00000120937 ,  ENSG00000164326 ,  ENSG00000175206 Myeloid ENSG00000211675 ,  ENSG00000181374 ,  ENSG00000198885 ,  ENSG00000105519 ,  ENSG00000269028 Neuronal ENSG00000111245 ,  ENSG00000143632 ,  ENSG00000198125 ,  ENSG00000211675 ,  ENSG00000251562 
+       
+     
+    
+
+     
+       Spatial Co-occurrence 
+       Co-occurrence score (conditional probability ratio) of each cell type
+         co-occurring with the most abundant type across increasing radii.
+         Scores > 1 indicate spatial enrichment at that distance. 
+       Co-occurrence scores vs distance 
+     
+    
+
+     
+       Neighbourhood Enrichment 
+       Permutation-based test (1000 permutations) on the spatial adjacency graph.
+         High z-scores indicate cell type pairs that are more often neighbours than
+         expected by chance. Negative values indicate spatial exclusion. 
+       Enrichment data computed but plot could not be rendered (check logs for details). 
+     
+    
+
+     
+       Ligand-Receptor Communication 
+       Permutation test (CellPhoneDB-like) for ligand-receptor interactions between
+         spatially co-localised cell types, using the OmniPath database.
+         Bar chart shows the top 20 pairs ranked by −log₁₀(p).
+         Dotplot is restricted to the 6 cell types with the most significant interactions. 
+       8,356 interactions at p < 0.001 (21,452 at p < 0.05) across 36 cell-type pairs. 
+       Top 20 LR pairs by significance Focused dotplot â€” top 6 cell types (click to expand) 
+     
+    
+
+     
+       SVG Pathway Enrichment (GSEA) 
+       Pre-ranked GSEA using Moran's I scores as the gene ranking.
+         Genes with high spatial autocorrelation are ranked first.
+         Red bars indicate positively enriched pathways; blue = depleted. 
+       
+      
+             Top 20 enriched pathways 
+             
+               Pathway NES FDR q-val 
+               Positive Regulation Of Cell Differentiation (GO:0045597) -1.860 1.378e-02  â˜… Nitrogen Compound Transport (GO:0071705) 1.608 5.190e-01  Intracellular Iron Ion Homeostasis (GO:0006879) 1.619 5.208e-01  Memory (GO:0007613) 1.583 5.318e-01  Regulation Of JUN Kinase Activity (GO:0043506) 1.590 5.392e-01  One-Carbon Compound Transport (GO:0019755) 1.610 5.409e-01  Regulation Of Protein Kinase Activity (GO:0045859) 1.594 5.444e-01  Actomyosin Structure Organization (GO:0031032) -1.653 5.479e-01  Response To Alcohol (GO:0097305) 1.585 5.498e-01  Purine Ribonucleotide Biosynthetic Process (GO:0009152) 1.517 5.518e-01  Enzyme-Linked Receptor Protein Signaling Pathway (GO:0007167) 1.576 5.605e-01  Protein Catabolic Process (GO:0030163) 1.518 5.632e-01  Regulation Of Angiogenesis (GO:0045765) 1.571 5.642e-01  Response To Hydrogen Peroxide (GO:0042542) 1.596 5.642e-01  Positive Regulation Of Neutrophil Migration (GO:1902624) 1.619 5.670e-01  Positive Regulation Of Neutrophil Chemotaxis (GO:0090023) 1.619 5.670e-01  Positive Regulation Of Granulocyte Chemotaxis (GO:0071624) 1.619 5.670e-01  Positive Regulation Of Endocytosis (GO:0045807) 1.512 5.735e-01  Macrophage Differentiation (GO:0030225) 1.530 5.752e-01  Regulation Of Receptor-Mediated Endocytosis (GO:0048259) 1.510 5.760e-01  
+             
+             ★ = FDR < 0.05  · 
+              Gene sets:  GO_Biological_Process_2023   · 
+              1 significant of 1004 tested 
+            
+     
+    
+   
+   
+    Generated by  OmicSage 
+    · MIT License
+   

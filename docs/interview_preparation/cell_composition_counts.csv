@@ -1,0 +1,12 @@
+cell_type,normal (HCC1),tumor (HCC2)
+B_cell,173,308
+Cholangiocyte,2,225
+DC,0,111
+Endothelial,22,129
+Fibroblast,281,101
+Hepatocyte,2615,1
+Macrophage,6975,26
+Mast_cell,8,114
+Monocyte,901,55
+Myeloid_unresolved,53,0
+T_cell,2469,3740

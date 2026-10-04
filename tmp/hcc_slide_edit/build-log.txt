@@ -1,0 +1,2 @@
+Inspect result written to file: C:\Users\shoko\OneDrive\Desktop\project\HCC_DD\tmp\hcc_slide_edit\new-slide.pptx.inspect.ndjson
+Reference previews and new editable slide exported.
